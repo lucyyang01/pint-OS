@@ -93,14 +93,16 @@ static void start_process(void* file_name_) {
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
-  char *program = file_name_;
+  char *programcopy = strdup(file_name_);
   char *tokens;
   size_t argc = 0;
-
-  while((tokens = strtok_r(file_name_, " ", &file_name_))){
-
+  char argv[64];
+  while((tokens = strtok_r(programcopy, " ", &programcopy))){
+    argv[0] = tokens;
+    argc += 1;
   }
-  char argv[];
+  argv[argc] = NULL;
+  
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
