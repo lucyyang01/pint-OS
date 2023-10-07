@@ -20,11 +20,13 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+char* strdup(const char* str);
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
-static thread_func start_pthread NO_RETURN;
+// static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
+void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -44,6 +46,56 @@ void userprog_init(void) {
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
+}
+
+/* Push arguments to Stack. */
+void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
+  //start at stack_ptr
+  //push the address of each string plus a null pointer sentinel, on the stack, in right-to-left order
+  char* argAddress[argc + 1];
+
+  for (int i = argc - 1; i >= 0; i--) {
+    if_->esp = if_->esp - strlen(argv[i]) - 1; //esp = esp - len(arg)
+    argAddress[i] = if_->esp;
+
+    memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
+  }
+
+  //stack align in necessary (skip for now)
+  size_t offset = ((size_t)if_->esp) % 16;
+  if_->esp = if_->esp - offset;
+  // %esp needs to be 16 byte aligned
+  //add null ptr
+  argAddress[argc] = NULL;
+  //align esp to 16 bytes (https://cs162.org/static/proj/pintos-docs/docs/userprog/program-startup/)
+  while ((size_t)if_->esp % 16) {
+    if_->esp = if_->esp - 1;
+  }
+  // if_->esp = if_->esp - 4;
+  // memcpy(if_->esp, argAddress[argc],4);
+  // if_->esp = NULL;
+  //Then, push argv (the address of argv[0]) and argc, in that order. Finally, push a fake “return address”;
+
+  /* Push the arguments onto the stack. */
+  for (int i = argc - 1; i >= 0; i--) {
+    if_->esp = if_->esp - sizeof(char*); //esp = esp - sizeof(char pointer) (pushing the address)
+    // memcpy(if_->esp, argAddress[i], strlen(argAddress[i]));
+    *(char**)(if_->esp) = argAddress[i];
+  }
+  // Push argv[0]
+  char** argv_ptr = (char**)if_->esp;
+  if_->esp = if_->esp - 4;
+  *(char***)(if_->esp) = argv_ptr;
+
+  // Push argc
+  if_->esp = if_->esp - 4;
+  // memcpy(if_->esp, argc,4);
+  *((size_t*)if_->esp) = argc;
+
+  //Push rip
+  if_->esp = if_->esp - 4;
+  // memcpy(if_->esp, 0,4);
+  *((size_t*)if_->esp) = 0;
 }
 
 /* Starts a new thread running a user program loaded from
@@ -93,16 +145,17 @@ static void start_process(void* file_name_) {
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
-  char *programcopy = strdup(file_name_);
-  char *tokens;
+  char* programcopy = file_name;
+  char* tokens;
   size_t argc = 0;
-  char argv[64];
-  while((tokens = strtok_r(programcopy, " ", &programcopy))){
-    argv[0] = tokens;
+  char* argv[64];
+  while ((tokens = strtok_r(programcopy, " ", &programcopy))) {
+    argv[argc] = malloc(sizeof(char*));
+    strlcpy(argv[argc], tokens, strlen(tokens));
     argc += 1;
   }
   argv[argc] = NULL;
-  free(programcopy);
+  // free(programcopy);
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -136,40 +189,15 @@ static void start_process(void* file_name_) {
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
   push_to_stack(argc, argv, &if_);
+  /* Free the stack. */
+  // int x = 0;
+  // while (argv[x]!= NULL) {
+  //   free(argv[x]);
+  // }
   //temp fix
-  if_.esp = 0xBFFFFFEC;
+  // if_.esp = (void*)0xBFFFFFEC;
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
-}
-
-void push_to_stack(size_t argc, char* argv[], struct intr_frame *if_){
-  //start at stack_ptr
-  //push the address of each string plus a null pointer sentinel, on the stack, in right-to-left order
-  char *address = if_->esp;
-  char *argAdds[argc + 1];
-  for(int i = argc - 1; i >= 0; i--){
-    address = address - sizeof(argv[i]);
-    *address = argv[i];
-    argAdds[i] = address;
-  }
-  //stack align in necessary (skip for now)
-  size_t offset = *address % 16;
-  address = *address - offset;
-  // %esp needs to be 16 byte aligned 
-  //add null ptr
-  address = address - 4;
-  *address = NULL;
-  //Then, push argv (the address of argv[0]) and argc, in that order. Finally, push a fake “return address”;
-  for(int i = argc - 1; i >= 0; i--){
-    address = address - strlen(argv[i]);
-    *address = argAdds[i];
-  }
-  //argc
-  address = address - 4;
-  *address = argc;
-  //rip
-  address = address - 4;
-  *address = 0;
 }
 
 /* Waits for process with PID child_pid to die and returns its exit status.
@@ -574,7 +602,7 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
 
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
-static void start_pthread(void* exec_ UNUSED) {}
+// static void start_pthread(void* exec_ UNUSED) {}
 
 /* Waits for thread with TID to die, if that thread was spawned
    in the same process and has not been waited on yet. Returns TID on
