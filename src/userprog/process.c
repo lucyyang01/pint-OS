@@ -117,8 +117,11 @@ pid_t process_execute(const char* file_name) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
+  if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
+    // return TID_ERROR;
+  }
+
   return tid;
 }
 
@@ -150,7 +153,7 @@ static void start_process(void* file_name_) {
   char* argv[64];
   while ((tokens = strtok_r(programcopy, " ", &programcopy))) {
     argv[argc] = malloc(sizeof(char*));
-    strlcpy(argv[argc], tokens, strlen(tokens)+1);
+    strlcpy(argv[argc], tokens, strlen(tokens) + 1);
     argc += 1;
   }
   argv[argc] = NULL;

@@ -75,6 +75,7 @@ static void kill(struct intr_frame* f) {
     case SEL_UCSEG:
       /* User's code segment, so it's a user exception, as we
          expected.  Kill the user process.  */
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
       printf("%s: dying due to interrupt %#04x (%s).\n", thread_name(), f->vec_no,
              intr_name(f->vec_no));
       intr_dump_frame(f);
@@ -86,9 +87,13 @@ static void kill(struct intr_frame* f) {
          Kernel code shouldn't throw exceptions.  (Page faults
          may cause kernel exceptions--but they shouldn't arrive
          here.)  Panic the kernel to make the point.  */
-      intr_dump_frame(f);
-      PANIC("Kernel bug - unexpected interrupt in kernel");
+      // printf("Kernel Interruption\n");
+      // printf("%s: dying due to interrupt %#04x (%s).\n", thread_name(), f->vec_no,
+      //        intr_name(f->vec_no));
 
+      intr_dump_frame(f);
+      process_exit();
+      PANIC("Kernel bug - unexpected interrupt in kernel");
     default:
       /* Some other code segment? Shouldn't happen. Panic the kernel. */
       printf("Interrupt %#04x (%s) in unknown segment %04x\n", f->vec_no, intr_name(f->vec_no),
