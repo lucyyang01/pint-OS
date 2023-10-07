@@ -49,9 +49,9 @@ void userprog_init(void) {
 }
 
 /* Initialize a file descriptor list. */
-void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
+void init_file_descriptor_list(struct fileDescriptor_list *fdt) {
   list_init(&fdt);
-  pthread_mutex_init(&wclist->lock, NULL);
+  lock_init(&fdt->lock);
 }
 
 /* Push arguments to Stack. */
@@ -117,7 +117,8 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
-  struct* proccess_input input;
+  struct *proccess_input input;
+
 
   stru sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -128,7 +129,7 @@ pid_t process_execute(const char* file_name) {
   strlcpy(fn_copy, file_name, PGSIZE);
 
   //Modify parent struct
-  struct process* parent = thread_current()->pcb;
+  struct process *parent = thread_current()->pcb;
   input->parent = parent;
   input->file_name = file_name;
 
@@ -234,15 +235,15 @@ static void start_process(void* input) {
     sema_up(&temporary);
     thread_exit();
   }
-  sema_up()
+  sema_up();
 
-      /* Start the user process by simulating a return from an
+  /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-      push_to_stack(argc, argv, &if_);
+  push_to_stack(argc, argv, &if_);
   /* Free the stack. */
   // int x = 0;
   // while (argv[x]!= NULL) {
