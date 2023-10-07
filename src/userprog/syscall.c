@@ -25,6 +25,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   if (args[0] == SYS_EXIT) {
     f->eax = args[1];
+    // printf("ARGS: %d\n", args[1]);
+    // printf("Process NAME %s",thread_current()->pcb->process_name);
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
     process_exit();
   }

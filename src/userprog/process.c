@@ -140,10 +140,8 @@ static void start_process(void* file_name_) {
     // does not try to activate our uninitialized pagedir
     new_pcb->pagedir = NULL;
     t->pcb = new_pcb;
-
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
-    strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
   char* programcopy = file_name;
@@ -156,6 +154,8 @@ static void start_process(void* file_name_) {
     argc += 1;
   }
   argv[argc] = NULL;
+  //change the process name
+  strlcpy(new_pcb->process_name, argv[0], strlen(argv[0]) + 1);
   // free(programcopy);
   /* Initialize interrupt frame and load executable. */
   if (success) {
