@@ -24,9 +24,28 @@ typedef void (*stub_fun)(pthread_fun, void*);
    of the process, which is `special`. */
 struct process {
   /* Owned by process.c. */
-  uint32_t* pagedir;          /* Page directory. */
-  char process_name[16];      /* Name of the main thread */
-  struct thread* main_thread; /* Pointer to main thread */
+  uint32_t* pagedir;               /* Page directory. */
+  char process_name[16];           /* Name of the main thread */
+  struct thread* main_thread;      /* Pointer to main thread */
+  struct semaphore sema;           /* Semaphore that waits for children */
+  struct process* parent;          /* Parent process to increment semaphore */
+  struct list children;            /* Pintos list of child structs*/
+  int ref_count;                   /* All the threads currently running*/
+  struct list fileDescriptorTable; /* List of file descriptors */
+  int exit_code;                   /* Exit code for Parent Processes */
+  bool waited;                     /* Being waited on or not */
+  pid_t pid;
+};
+
+struct fileDescriptor_list_elem {
+  int* entry; //entry to global descriptor table
+  struct list_elem elem;
+};
+
+struct child_elem {
+  struct process* process;
+  int completion_status;
+  struct list_elem elem;
 };
 
 void userprog_init(void);

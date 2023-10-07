@@ -112,7 +112,7 @@ pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
 
-  sema_init(&temporary, 0);
+  stru sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -120,11 +120,17 @@ pid_t process_execute(const char* file_name) {
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
+  //Modify parent struct
+  struct process* parent = thread_current()->pcb;
+
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  //down semaphore in parent
+  sema_down(parent->sema);
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
     // return TID_ERROR;
+    free(tid);
   }
 
   return tid;
@@ -150,6 +156,36 @@ static void start_process(void* file_name_) {
     t->pcb = new_pcb;
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
+
+    /* Initialize a semaphore*/
+    struct semaphore my_semaphore;
+    t->pcb->sema = my_semaphore;
+    sema_init(&t->pcb->sema, 0);
+
+    /* Parent Process */
+    t->pcb->parent = NULL;
+
+    /* Child Processes */
+    struct list c;
+    t->pcb->children = c;
+    list_init(&t->pcb->children);
+
+    /* Reference Count */
+    t->pcb->ref_count = 2;
+
+    /* File Descriptor Table */
+    struct list f;
+    t->pcb->fileDescriptorTable = f;
+    list_init(&t->pcb->fileDescriptorTable);
+
+    /* Exit Code */
+    t->pcb->exit_code = 0;
+
+    /* Waited on or not */
+    t->pcb->waited = false;
+
+    /* Initialize file descriptor count*/
+    t->pcb->fdt_count = 1; //open() should start at fd = 2
   }
 
   char* programcopy = file_name;
@@ -218,8 +254,31 @@ static void start_process(void* file_name_) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
+int process_wait(pid_t child_pid) {
+  struct list children = thread_current()->pcb->children;
+  bool foundChild = false;
+  if (list_empty(&children)) {
+    return -1;
+  }
+  struct list_elem* element = list_begin(&children);
+  while (element != NULL && element != list_tail(&children)) {
+    struct child_elem* c = list_entry(element, struct child_elem, elem);
+    struct process* entry = c->process;
+    pid_t entry_pid = entry->pid;
+    if (entry_pid == child_pid) {
+      foundChild = true;
+      if (!entry->waited) {
+        entry->waited = true;
+        sema_down(&entry->sema);
+      } else {
+        return -1;
+      }
+    }
+  }
+  if (!foundChild) {
+    return -1;
+  }
+
   return 0;
 }
 
