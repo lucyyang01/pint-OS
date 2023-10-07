@@ -102,7 +102,7 @@ static void start_process(void* file_name_) {
     argc += 1;
   }
   argv[argc] = NULL;
-
+  free(programcopy);
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -141,11 +141,32 @@ static void start_process(void* file_name_) {
   NOT_REACHED();
 }
 
-void push_to_stack(size_t argc, char* argv[], struct intr_frame if_){
-  //start at phys_base
+void push_to_stack(size_t argc, char* argv[], struct intr_frame *if_){
+  //start at stack_ptr
   //push the address of each string plus a null pointer sentinel, on the stack, in right-to-left order
+  char *address = if_->esp;
+  char *argAdds[argc + 1];
+  for(int i = argc - 1; i >= 0; i--){
+    address = address - sizeof(argv[i]);
+    *address = argv[i];
+    argAdds[i] = address;
+  }
+  //stack align in necessary (skip for now)
   // %esp needs to be 16 byte aligned 
+  //add null ptr
+  address = address - 4;
+  *address = NULL;
   //Then, push argv (the address of argv[0]) and argc, in that order. Finally, push a fake “return address”;
+  for(int i = argc - 1; i >= 0; i--){
+    address = address - sizeof(argv[i]);
+    *address = argAdds[i];
+  }
+  //argc
+  address = address - 4;
+  *address = argc;
+  //rip
+  address = address - 4;
+  *address = 0;
 }
 
 /* Waits for process with PID child_pid to die and returns its exit status.
