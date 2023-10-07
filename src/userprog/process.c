@@ -61,12 +61,15 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
     memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
   }
 
-  //stack align in necessary (skip for now)
-  // Align to 16 bytes
-  while ((uintptr_t)if_->esp % 16 != 0) {
+  /* Calculate total size that will be pushed after alignment. */
+  int total_size_to_push = (argc + 1) * sizeof(char*) /* argv addresses and null sentinel */
+                           + sizeof(char**)           /* address of argv */
+                           + sizeof(size_t);          /* argc */
+
+  /* Adjust esp to ensure it will be 16-byte aligned after all pushes. */
+  while ((uintptr_t)(if_->esp - total_size_to_push) % 16 != 0) {
     if_->esp = (char*)if_->esp - 1;
   }
-  // %esp needs to be 16 byte aligned
   //add null ptr
   if_->esp = if_->esp - 4;
   *(uint32_t*)if_->esp = 0; // Push NULL onto the stack.

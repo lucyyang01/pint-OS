@@ -60,12 +60,27 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
 
   /*File SYS CALLS. All file syscalls must validate the arguments are above the stack and any buffers they point to.
-    Create a new file descriptor if necessary and validate.
+    Create a new file descriptor if necessary using counter and validate.
   */
 
   if (args[0] == SYS_CREATE) {
     filesys_create(args[1], args[2]);
   }
+  if (args[0] == SYS_REMOVE) {
+    //remove file descriptor
+    filesys_remove(args[1]);
+  }
+  if (args[0] == SYS_OPEN) {
+    filesys_open(args[1]);
+    //create new file descriptor elem
+  }
+  if (args[0] == SYS_CLOSE) {
+    //remove file descriptor
+  }
+  if (args[0] == SYS_FILESIZE) {
+    //file_length();
+  }
+
   if (args[0] == SYS_WRITE) {
     if (args[1] == 1) {
       putbuf((void*)args[2], args[3]);
