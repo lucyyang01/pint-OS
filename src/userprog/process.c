@@ -152,13 +152,15 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame *if_){
     argAdds[i] = address;
   }
   //stack align in necessary (skip for now)
+  size_t offset = *address % 16;
+  address = *address - offset;
   // %esp needs to be 16 byte aligned 
   //add null ptr
   address = address - 4;
   *address = NULL;
   //Then, push argv (the address of argv[0]) and argc, in that order. Finally, push a fake “return address”;
   for(int i = argc - 1; i >= 0; i--){
-    address = address - sizeof(argv[i]);
+    address = address - strlen(argv[i]);
     *address = argAdds[i];
   }
   //argc
