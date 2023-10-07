@@ -24,21 +24,34 @@ typedef void (*stub_fun)(pthread_fun, void*);
    of the process, which is `special`. */
 struct process {
   /* Owned by process.c. */
-  uint32_t* pagedir;               /* Page directory. */
-  char process_name[16];           /* Name of the main thread */
-  struct thread* main_thread;      /* Pointer to main thread */
-  struct semaphore sema;           /* Semaphore that waits for children */
-  struct process* parent;          /* Parent process to increment semaphore */
-  struct list children;            /* Pintos list of child structs*/
-  int ref_count;                   /* All the threads currently running*/
-  struct list fileDescriptorTable; /* List of file descriptors */
-  int exit_code;                   /* Exit code for Parent Processes */
-  bool waited;                     /* Being waited on or not */
+  uint32_t* pagedir;                               /* Page directory. */
+  char process_name[16];                           /* Name of the main thread */
+  struct thread* main_thread;                      /* Pointer to main thread */
+  struct semaphore sema;                           /* Semaphore that waits for children */
+  struct process* parent;                          /* Parent process to increment semaphore */
+  struct list children;                            /* Pintos list of child structs*/
+  int ref_count;                                   /* All the threads currently running*/
+  struct fileDescriptor_list* fileDescriptorTable; /* List of file descriptors */
+  int exit_code;                                   /* Exit code for Parent Processes */
+  bool waited;                                     /* Being waited on or not */
   pid_t pid;
 };
 
-struct fileDescriptor_list_elem {
-  int* entry; //entry to global descriptor table
+struct process_input {
+  char* file_name;
+  struct process* parent;
+};
+
+struct fileDescriptor_list {
+  int fdt_count; /* Counter for every file descriptor ever created*/
+  struct list lst;
+  struct lock lock;
+};
+
+struct fileDescriptor {
+  //TODO: check process_execute for list init
+  int fd; //entry to global descriptor table
+  struct file* file;
   struct list_elem elem;
 };
 

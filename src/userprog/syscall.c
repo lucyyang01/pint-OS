@@ -127,7 +127,13 @@ int read(int fd, void* buffer, unsigned size) {}
 
 /* Returns the size, in bytes, of the open file with file descriptor fd. 
 Returns -1 if fd does not correspond to an entry in the file descriptor table.*/
-int filesize(int fd) { thread_current()->pcb-> }
+int filesize(int fd) {
+  list* fdt = thread_current()->pcb->fileDescriptionTable;
+  list_elem* el;
+  for (el = list_begin(fdt); el != list_end(fdt); el = list_next(el)) {
+    struct
+  }
+}
 
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
@@ -135,15 +141,24 @@ int open(const char* file) {
   if (!validate_pointer(file)) {
     return -1;
   }
-  //open
+  //open file
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
     return -1;
   }
+  //FDT only stores open files
   //create a new fileDescriptor_list_elem
+  //word_count_t *new_word = malloc(sizeof(word_count_t));
+  //list_push_back(&wclist->lst, &new_word->elem);
+  fileDescriptor* new_entry = malloc(sizeof(fileDescriptor));
+  int new_fd = thread_current()->pcb->fileDescriptorTable->fd;
+  new_entry->fd = new_fd;
+  new_entry->file = opened;
+  list_push_back(&thread_current()->pcb->fileDescriptorTable, &new_entry->elem);
   //set the file field to the file returned by filesys_open
+  //denywrite function
   thread_current()->pcb->fdt_count += 1;
-  return thread_current()->pcb->fdt_count;
+  return new_fd;
 }
 
 /* Deletes the file named file. Returns true if successful, false otherwise. */

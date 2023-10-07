@@ -48,6 +48,12 @@ void userprog_init(void) {
   ASSERT(success);
 }
 
+/* Initialize a file descriptor list. */
+void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
+  list_init(&fdt);
+  pthread_mutex_init(&wclist->lock, NULL);
+}
+
 /* Push arguments to Stack. */
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
   //start at stack_ptr
@@ -111,6 +117,7 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
+  struct* proccess_input input;
 
   stru sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -122,9 +129,11 @@ pid_t process_execute(const char* file_name) {
 
   //Modify parent struct
   struct process* parent = thread_current()->pcb;
+  input->parent = parent;
+  input->file_name = file_name;
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(input, PRI_DEFAULT, start_process, fn_copy);
   //down semaphore in parent
   sema_down(parent->sema);
   if (tid == TID_ERROR) {
@@ -132,14 +141,13 @@ pid_t process_execute(const char* file_name) {
     // return TID_ERROR;
     free(tid);
   }
-
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+static void start_process(void* input) {
+  struct process_input* input = (struct process_input*)input;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -163,7 +171,7 @@ static void start_process(void* file_name_) {
     sema_init(&t->pcb->sema, 0);
 
     /* Parent Process */
-    t->pcb->parent = NULL;
+    t->pcb->parent = input->parent;
 
     /* Child Processes */
     struct list c;
@@ -188,7 +196,7 @@ static void start_process(void* file_name_) {
     t->pcb->fdt_count = 1; //open() should start at fd = 2
   }
 
-  char* programcopy = file_name;
+  char* programcopy = input->file_name;
   char* tokens;
   size_t argc = 0;
   char* argv[64];
@@ -226,14 +234,15 @@ static void start_process(void* file_name_) {
     sema_up(&temporary);
     thread_exit();
   }
+  sema_up()
 
-  /* Start the user process by simulating a return from an
+      /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  push_to_stack(argc, argv, &if_);
+      push_to_stack(argc, argv, &if_);
   /* Free the stack. */
   // int x = 0;
   // while (argv[x]!= NULL) {
