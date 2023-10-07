@@ -93,6 +93,16 @@ static void start_process(void* file_name_) {
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
+  char *programcopy = strdup(file_name_);
+  char *tokens;
+  size_t argc = 0;
+  char argv[64];
+  while((tokens = strtok_r(programcopy, " ", &programcopy))){
+    argv[0] = tokens;
+    argc += 1;
+  }
+  argv[argc] = NULL;
+  free(programcopy);
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -125,8 +135,41 @@ static void start_process(void* file_name_) {
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+  push_to_stack(argc, argv, &if_);
+  //temp fix
+  if_.esp = 0xBFFFFFEC;
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
+}
+
+void push_to_stack(size_t argc, char* argv[], struct intr_frame *if_){
+  //start at stack_ptr
+  //push the address of each string plus a null pointer sentinel, on the stack, in right-to-left order
+  char *address = if_->esp;
+  char *argAdds[argc + 1];
+  for(int i = argc - 1; i >= 0; i--){
+    address = address - sizeof(argv[i]);
+    *address = argv[i];
+    argAdds[i] = address;
+  }
+  //stack align in necessary (skip for now)
+  size_t offset = *address % 16;
+  address = *address - offset;
+  // %esp needs to be 16 byte aligned 
+  //add null ptr
+  address = address - 4;
+  *address = NULL;
+  //Then, push argv (the address of argv[0]) and argc, in that order. Finally, push a fake “return address”;
+  for(int i = argc - 1; i >= 0; i--){
+    address = address - strlen(argv[i]);
+    *address = argAdds[i];
+  }
+  //argc
+  address = address - 4;
+  *address = argc;
+  //rip
+  address = address - 4;
+  *address = 0;
 }
 
 /* Waits for process with PID child_pid to die and returns its exit status.
