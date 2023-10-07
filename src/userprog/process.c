@@ -152,7 +152,7 @@ static void start_process(void* file_name_) {
   char* argv[64];
   while ((tokens = strtok_r(programcopy, " ", &programcopy))) {
     argv[argc] = malloc(sizeof(char*));
-    strlcpy(argv[argc], tokens, strlen(tokens));
+    strlcpy(argv[argc], tokens, strlen(tokens)+1);
     argc += 1;
   }
   argv[argc] = NULL;
