@@ -69,7 +69,9 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
   // %esp needs to be 16 byte aligned
   //add null ptr
   if_->esp = if_->esp - 4;
-  argAddress[argc] = NULL;
+  *(uint32_t*)if_->esp = 0; // Push NULL onto the stack.
+
+  // argAddress[argc] = NULL;
   //align esp to 16 bytes (https://cs162.org/static/proj/pintos-docs/docs/userprog/program-startup/)
   // if_->esp = (void*)(((uintptr_t)if_->esp) & ~0xF);
   // if_->esp = if_->esp - 4;

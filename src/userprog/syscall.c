@@ -35,6 +35,37 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = args[1] + 1;
   }
 
+  if (args[0] == SYS_HALT) {
+    shutdown_power_off();
+  }
+
+  if (args[0] == SYS_EXEC) {
+    //args[1] is const char *cmd_line
+    //down semaphore
+    //validate pointer is in user memory
+    if (process_execute(args[1]) == TID_ERROR) {
+      f->eax = -1;
+    }
+    //up semaphore
+    //free resources in case of failure
+  }
+
+  if (args[0] == SYS_WAIT) {
+    pid_t child = args[1];
+    //find child in list of children
+    //down semaphore in child
+    process_wait(child);
+    //when done, store and return exit code from shared data
+    //decrement ref count and destroy the data if failed
+  }
+
+  /*File SYS CALLS. All file syscalls must validate the arguments are above the stack and any buffers they point to.
+    Create a new file descriptor if necessary and validate.
+  */
+
+  if (args[0] == SYS_CREATE) {
+    filesys_create(args[1], args[2]);
+  }
   if (args[0] == SYS_WRITE) {
     if (args[1] == 1) {
       putbuf((void*)args[2], args[3]);
