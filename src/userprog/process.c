@@ -62,15 +62,16 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
   }
 
   //stack align in necessary (skip for now)
-  size_t offset = ((size_t)if_->esp) % 16;
-  if_->esp = if_->esp - offset;
+  // Align to 16 bytes
+  while ((uintptr_t)if_->esp % 16 != 0) {
+    if_->esp = (char*)if_->esp - 1;
+  }
   // %esp needs to be 16 byte aligned
   //add null ptr
+  if_->esp = if_->esp - 4;
   argAddress[argc] = NULL;
   //align esp to 16 bytes (https://cs162.org/static/proj/pintos-docs/docs/userprog/program-startup/)
-  while ((size_t)if_->esp % 16) {
-    if_->esp = if_->esp - 1;
-  }
+  // if_->esp = (void*)(((uintptr_t)if_->esp) & ~0xF);
   // if_->esp = if_->esp - 4;
   // memcpy(if_->esp, argAddress[argc],4);
   // if_->esp = NULL;
