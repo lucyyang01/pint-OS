@@ -93,6 +93,14 @@ static void start_process(void* file_name_) {
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
+  char *program = file_name_;
+  char *tokens;
+  size_t argc = 0;
+
+  while((tokens = strtok_r(file_name_, " ", &file_name_))){
+
+  }
+  char argv[];
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -129,6 +137,10 @@ static void start_process(void* file_name_) {
   if_.esp = 0xBFFFFFEC;
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
+}
+
+void push_to_stack(size_t argc, char* argv, struct intr_frame if_){
+
 }
 
 /* Waits for process with PID child_pid to die and returns its exit status.

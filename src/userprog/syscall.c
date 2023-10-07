@@ -40,6 +40,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     }
     else{
       //doesnt work
+      //need to get file from file descriptor arg
       f->eax = file_write(args[1], args[2],args[3]);
     }
   }
