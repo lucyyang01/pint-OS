@@ -55,6 +55,7 @@ pid_t get_pid(struct process*);
 struct process_input {
   char* file_name;
   struct process* parent;
+  bool success;
 };
 
 void pthread_exit(void);
