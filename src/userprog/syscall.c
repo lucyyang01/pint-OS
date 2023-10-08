@@ -109,7 +109,13 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   if (args[0] == SYS_WRITE) {
     if (args[1] == 1) {
+      //TODO: Check if you can write x amount of bytes here in memory
+      // uint32_t  = f->esp + args[3] + 1;
       putbuf((void*)args[2], args[3]);
+      if (!validate_pointer(args[0])) {
+        f->eax = -1;
+        process_exit();
+      }
       f->eax = args[3];
     } else {
       //doesnt work
