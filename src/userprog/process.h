@@ -3,6 +3,7 @@
 
 #include "threads/thread.h"
 #include <stdint.h>
+#include <list.h>
 
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
@@ -36,9 +37,15 @@ struct process {
 };
 
 struct fileDescriptor_list {
-  // int fdt_count; /* Counter for every file descriptor ever created*/
+  int fdt_count; /* Counter for every file descriptor ever created*/
   struct list lst;
   struct lock lock;
+};
+
+struct fileDescriptor {
+  int fd;
+  struct file* file;
+  struct list_elem elem;
 };
 
 void userprog_init(void);

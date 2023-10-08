@@ -27,6 +27,14 @@ static thread_func start_process NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
+void init_file_descriptor_list(struct fileDescriptor_list* fdt);
+
+/* Initialize a file descriptor list. */
+void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
+  list_init(&fdt->lst);
+  lock_init(&fdt->lock);
+  fdt->fdt_count = 3;
+}
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -199,8 +207,8 @@ static void start_process(void* i) {
     t->pcb->ref_count = 2;
 
     /* File Descriptor Table */
-    // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
-    // struct list fdt;
+    struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
+    init_file_descriptor_list(&fdt);
     // t->pcb->fileDescriptorTable = f;
     // t->pcb->fileDescriptorTable->lst = fdt;
 
