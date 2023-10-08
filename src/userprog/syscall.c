@@ -111,7 +111,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   */
 
   if (args[0] == SYS_CREATE) {
-    f->eax = create((char*)args[1], args[2]);
+    bool result = create((char*)args[1], args[2]);
+    if (result) {
+      f->eax = 0;
+    } else {
+      f->eax = -1;
+    }
   }
   if (args[0] == SYS_REMOVE) {
     //remove file descriptor
