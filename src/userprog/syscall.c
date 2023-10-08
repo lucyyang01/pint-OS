@@ -19,6 +19,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = -1;
     process_exit();
   }
+  if (!validate_pointer(&args[1])) {
+    f->eax = -1;
+    process_exit();
+  }
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -112,10 +116,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       //TODO: Check if you can write x amount of bytes here in memory
       // uint32_t  = f->esp + args[3] + 1;
       putbuf((void*)args[2], args[3]);
-      if (!validate_pointer(args[0])) {
-        f->eax = -1;
-        process_exit();
-      }
       f->eax = args[3];
     } else {
       //doesnt work
