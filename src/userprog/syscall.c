@@ -19,8 +19,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     process_exit();
   }
   if (!validate_pointer(args + sizeof(args))) {
-      f->eax = -1;
-      process_exit();
+    f->eax = -1;
+    process_exit();
   }
 
   // if (!validate_pointer(&args[1])) {
@@ -75,6 +75,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //args[1] is const char *cmd_line
     //down semaphore
     //validate pointer is in user memory
+
     f->eax = process_execute(args[1]);
     //up semaphore
     //free resources in case of failure
