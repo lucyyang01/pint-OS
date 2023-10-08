@@ -111,18 +111,25 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   */
 
   if (args[0] == SYS_CREATE) {
-    bool result = create((char*)args[1], args[2]);
-    if (result) {
-      f->eax = 0;
-    } else {
+    if (!validate_pointer(args[1])) {
       f->eax = -1;
+      process_exit();
     }
+    f->eax = create((char*)args[1], args[2]);
   }
   if (args[0] == SYS_REMOVE) {
     //remove file descriptor
+    if (!validate_pointer(args[1])) {
+      f->eax = -1;
+      process_exit();
+    }
     f->eax = remove((char*)args[1]);
   }
   if (args[0] == SYS_OPEN) {
+    if (!validate_pointer(args[1])) {
+      f->eax = -1;
+      process_exit();
+    }
     f->eax = open((char*)args[1]);
     //create new file descriptor elem
   }
@@ -133,9 +140,17 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = filesize(args[1]);
   }
   if (args[0] == SYS_READ) {
+    if (!validate_pointer(args[2])) {
+      f->eax = -1;
+      process_exit();
+    }
     f->eax = read(args[1], (char*)args[2], args[3]);
   }
   if (args[0] == SYS_WRITE) {
+    if (!validate_pointer(args[2])) {
+      f->eax = -1;
+      process_exit();
+    }
     f->eax = write(args[1], (char*)args[2], args[3]);
   }
   if (args[0] == SYS_SEEK) {
@@ -185,9 +200,9 @@ Returns the number of bytes actually written, which may be less than size
 if some bytes could not be written. Returns -1 if fd does not correspond 
 to an entry in the file descriptor table.*/
 int write(int fd, const void* buffer, unsigned size) {
-  if (!validate_pointer(buffer)) {
-    return -1;
-  }
+  // if (!validate_pointer(buffer)) {
+  //   return -1;
+  // }
   if (fd == 1) {
     int bytes_written = 0;
     if (size > 300) {
@@ -213,9 +228,9 @@ int write(int fd, const void* buffer, unsigned size) {
 /* Reads size bytes from the file open as fd into buffer. 
 Returns the number of bytes actually read (0 at EOF), or -1 if failed. */
 int read(int fd, void* buffer, unsigned size) {
-  if (!validate_pointer((char*)buffer)) {
-    return -1;
-  }
+  // if (!validate_pointer((char*)buffer)) {
+  //   return -1;
+  // }
   //check that fd is in fdt
   //deny writes?
   struct fileDescriptor* read_fd = find_fd(fd);
@@ -236,9 +251,9 @@ int filesize(int fd) {
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
 int open(const char* file) {
-  if (!validate_pointer(file)) {
-    return -1;
-  }
+  // if (!validate_pointer(file)) {
+  //   return -1;
+  // }
   //open file
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
@@ -260,18 +275,18 @@ int open(const char* file) {
 
 /* Deletes the file named file. Returns true if successful, false otherwise. */
 bool remove(const char* file) {
-  if (!validate_pointer(file)) {
-    return false;
-  }
+  // if (!validate_pointer(file)) {
+  //   return false;
+  // }
   return filesys_remove(file);
 }
 
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
 bool create(const char* file, unsigned initialized_size) {
-  if (!validate_pointer(file)) {
-    return false;
-  }
+  // if (!validate_pointer(file)) {
+  //   return false;
+  // }
   return filesys_create(file, initialized_size);
 }
 
