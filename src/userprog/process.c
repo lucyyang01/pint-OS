@@ -27,7 +27,6 @@ static thread_func start_process NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
-void init_file_descriptor_list(struct fileDescriptor_list* fdt);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -71,12 +70,6 @@ void userprog_init(void) {
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
-}
-
-/* Initialize a file descriptor list. */
-void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
-  list_init(&fdt->lst);
-  lock_init(&fdt->lock);
 }
 
 /* Push arguments to Stack. */
@@ -162,8 +155,8 @@ pid_t process_execute(const char* file_name) {
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
     // return TID_ERROR;
-    free(&tid);
   }
+
   return tid;
 }
 
@@ -214,7 +207,7 @@ static void start_process(void* i) {
     // list_init(&t->pcb->fileDescriptorTable);
   }
 
-  char* programcopy = input->file_name;
+  char* programcopy = file_name;
   char* tokens;
   size_t argc = 0;
   char* argv[64];
@@ -247,7 +240,6 @@ static void start_process(void* i) {
     struct process* pcb_to_free = t->pcb;
     t->pcb = NULL;
     free(pcb_to_free);
-    free(input);
   }
 
   /* Clean up. Exit on failure or jump to userspace */
@@ -256,9 +248,6 @@ static void start_process(void* i) {
     sema_up(&temporary);
     thread_exit();
   }
-  //t->pcb->success = true;
-  //up Semaphore
-  //sema_up(&t->pcb->parent->sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -287,31 +276,8 @@ static void start_process(void* i) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid) {
-  struct list children = thread_current()->pcb->children;
-  bool foundChild = false;
-  if (list_empty(&children)) {
-    return -1;
-  }
-  struct list_elem* element = list_begin(&children);
-  while (element != NULL && element != list_tail(&children)) {
-    struct child_elem* c = list_entry(element, struct child_elem, elem);
-    struct process* entry = c->process;
-    pid_t entry_pid = entry->pid;
-    if (entry_pid == child_pid) {
-      foundChild = true;
-      if (!entry->waited) {
-        entry->waited = true;
-        sema_down(&entry->sema);
-      } else {
-        return -1;
-      }
-    }
-  }
-  if (!foundChild) {
-    return -1;
-  }
-
+int process_wait(pid_t child_pid UNUSED) {
+  sema_down(&temporary);
   return 0;
 }
 
@@ -696,41 +662,3 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; 
    should be similar to process_execute (). For now, it does nothing.
    */
 tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
-
-/* A thread function that creates a new user thread and starts it
-   running. Responsible for adding itself to the list of threads in
-   the PCB.
-
-   This function will be implemented in Project 2: Multithreading and
-   should be similar to start_process (). For now, it does nothing. */
-// static void start_pthread(void* exec_ UNUSED) {}
-
-/* Waits for thread with TID to die, if that thread was spawned
-   in the same process and has not been waited on yet. Returns TID on
-   success and returns TID_ERROR on failure immediately, without
-   waiting.
-
-   This function will be implemented in Project 2: Multithreading. For
-   now, it does nothing. */
-tid_t pthread_join(tid_t tid UNUSED) { return -1; }
-
-/* Free the current thread's resources. Most resources will
-   be freed on thread_exit(), so all we have to do is deallocate the
-   thread's userspace stack. Wake any waiters on this thread.
-
-   The main thread should not use this function. See
-   pthread_exit_main() below.
-
-   This function will be implemented in Project 2: Multithreading. For
-   now, it does nothing. */
-void pthread_exit(void) {}
-
-/* Only to be used when the main thread explicitly calls pthread_exit.
-   The main thread should wait on all threads in the process to
-   terminate properly, before exiting itself. When it exits itself, it
-   must terminate the process in addition to all necessary duties in
-   pthread_exit.
-
-   This function will be implemented in Project 2: Multithreading. For
-   now, it does nothing. */
-void pthread_exit_main(void) {}
