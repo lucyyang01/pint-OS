@@ -228,10 +228,6 @@ int write(int fd, const void* buffer, unsigned size) {
 /* Reads size bytes from the file open as fd into buffer. 
 Returns the number of bytes actually read (0 at EOF), or -1 if failed. */
 int read(int fd, void* buffer, unsigned size) {
-  // if (!validate_pointer((char*)buffer)) {
-  //   return -1;
-  // }
-  //check that fd is in fdt
   //deny writes?
   struct fileDescriptor* read_fd = find_fd(fd);
   if (read_fd == NULL)
@@ -301,6 +297,6 @@ struct fileDescriptor* find_fd(int fd_val) {
       return fileDescriptor_entry;
     }
   }
-  lock_acquire(&fdt->lock);
+  lock_release(&fdt->lock);
   return NULL;
 }
