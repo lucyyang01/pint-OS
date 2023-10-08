@@ -18,11 +18,15 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = -1;
     process_exit();
   }
-
-  if (!validate_pointer(&args[1])) {
-    f->eax = -1;
-    process_exit();
+  if (!validate_pointer(args + sizeof(args))) {
+      f->eax = -1;
+      process_exit();
   }
+
+  // if (!validate_pointer(&args[1])) {
+  //   f->eax = -1;
+  //   process_exit();
+  // }
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
@@ -47,23 +51,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
 
   if (args[0] == SYS_EXEC) {
-    // if (!validate_pointer(&args)) {
-    //   f->eax = -1;
-    //   process_exit();
-    // }
-    // if (!validate_pointer(&args)) {
-    //   f->eax = -1;
-    //   process_exit();
-    // }
     if (!validate_pointer(args[1])) {
       f->eax = -1;
       process_exit();
     }
-    if (!validate_pointer(&args[1])) {
-      f->eax = -1;
-      process_exit();
-    }
-    const char* cmd_line = &args[1];
+    const char* cmd_line = args[1];
     while (true) {
       // Check if the current character's address is valid
       if (!validate_pointer(cmd_line)) {
