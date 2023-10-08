@@ -25,7 +25,6 @@ static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 // static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
-void init_file_descriptor_list(struct fileDescriptor_list* fdt);
 bool setup_thread(void (**eip)(void), void** esp);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
 
@@ -50,10 +49,9 @@ void userprog_init(void) {
 }
 
 /* Initialize a file descriptor list. */
-void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
-  list_init(&fdt->lst);
+void init_file_descriptor_list(struct fileDescriptor_list *fdt) {
+  list_init(&fdt);
   lock_init(&fdt->lock);
-  fdt->fdt_count = 3;
 }
 
 /* Push arguments to Stack. */
@@ -119,7 +117,8 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
-  struct* proccess_input input;
+  struct *proccess_input input;
+
 
   stru sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -130,7 +129,7 @@ pid_t process_execute(const char* file_name) {
   strlcpy(fn_copy, file_name, PGSIZE);
 
   //Modify parent struct
-  struct process* parent = thread_current()->pcb;
+  struct process *parent = thread_current()->pcb;
   input->parent = parent;
   input->file_name = file_name;
 
@@ -184,15 +183,18 @@ static void start_process(void* input) {
     t->pcb->ref_count = 2;
 
     /* File Descriptor Table */
-    struct fileDescriptor_list fdt;
-    t->pcb->fileDescriptorTable = &fdt; //pointer to fd list
-    init_file_descriptor_list(t->pcb->fileDescriptorTable);
+    struct list f;
+    t->pcb->fileDescriptorTable = f;
+    list_init(&t->pcb->fileDescriptorTable);
 
     /* Exit Code */
     t->pcb->exit_code = 0;
 
     /* Waited on or not */
     t->pcb->waited = false;
+
+    /* Initialize file descriptor count*/
+    t->pcb->fdt_count = 1; //open() should start at fd = 2
   }
 
   char* programcopy = input->file_name;
