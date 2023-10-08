@@ -156,10 +156,14 @@ pid_t process_execute(const char* file_name) {
 
   input->parent = thread_current()->pcb;
   input->file_name = fn_copy;
+  input->success = false;
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, input);
   sema_down(&thread_current()->pcb->sema);
+  if (!input->success) {
+    return TID_ERROR;
+  }
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
     // return TID_ERROR;
@@ -235,8 +239,13 @@ static void start_process(void* i) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
+    input->success = success;
     //UP semaphore when process loaded
     sema_up(&new_pcb->parent->sema);
+    if (!success) {
+      if_.eax = -1;
+      thread_exit();
+    }
     push_to_stack(argc, argv, &if_);
   }
 
