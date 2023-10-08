@@ -44,10 +44,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
 
   if (args[0] == SYS_EXEC) {
-    if (!validate_pointer(&args)) {
-      f->eax = -1;
-      process_exit();
-    }
+    // if (!validate_pointer(&args)) {
+    //   f->eax = -1;
+    //   process_exit();
+    // }
     if (!validate_pointer(&args[1])) {
       f->eax = -1;
       process_exit();
