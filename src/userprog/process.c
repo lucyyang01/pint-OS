@@ -286,6 +286,8 @@ void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
+  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+
   /* If this thread does not have a PCB, don't worry */
   if (cur->pcb == NULL) {
     thread_exit();
