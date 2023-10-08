@@ -124,16 +124,19 @@ static bool validate_pointer(void* ptr) {
   //need to validate pointer to read/write is also valid
   //check if ptr is null
   if (ptr == NULL) {
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     return false;
   }
   //check if ptr is in kernal space
   if (is_kernel_vaddr(ptr)) {
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     return false;
   }
   //check if ptr is unmapped virtual memory
   uint32_t* pd = active_pd();
   void* dog = pagedir_get_page(pd, ptr);
   if (dog == NULL) {
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     return false;
   }
   return true;
