@@ -192,6 +192,7 @@ int read(int fd, void* buffer, unsigned size) {
   }
   //check that fd is in fdt
   //deny writes?
+  //random change
   struct fileDescriptor read_fd = find_fd(fd);
   if (read_fd == NULL)
     return -1;
