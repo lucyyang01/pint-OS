@@ -54,15 +54,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     // struct process* parent = thread_current()->pcb;
     // pid_t pid = get_pid(parent);
     //validate pointer is in user memory
-    char* cmd_line = (char*)args[1];
-    pid_t childpid = process_execute(cmd_line);
-    if (childpid == TID_ERROR) {
-      //go to parent process and update exit code
-      thread_current()->pcb->exit_code = -1;
-      f->eax = -1;
-    } else {
-      f->eax = childpid;
-    }
+    f->eax = process_execute(args[1]);
     //up semaphore
     // sema_up(thread_current()->pcb->sema);
     // //down semaphore in parent

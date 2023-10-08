@@ -24,42 +24,21 @@ typedef void (*stub_fun)(pthread_fun, void*);
    of the process, which is `special`. */
 struct process {
   /* Owned by process.c. */
-  uint32_t* pagedir;                               /* Page directory. */
-  char process_name[16];                           /* Name of the main thread */
-  struct thread* main_thread;                      /* Pointer to main thread */
-  struct semaphore sema;                           /* Semaphore that waits for children */
-  struct process* parent;                          /* Parent process to increment semaphore */
-  struct list children;                            /* Pintos list of child structs*/
-  int ref_count;                                   /* All the threads currently running*/
-  struct fileDescriptor_list* fileDescriptorTable; /* List of file descriptors */
-  int exit_code;                                   /* Exit code for Parent Processes */
-  bool waited;                                     /* Being waited on or not */
-  pid_t pid;
-  bool success; /*BOOL for if the process loaded successfully*/
-};
-
-struct process_input {
-  char* file_name;
+  uint32_t* pagedir;          /* Page directory. */
+  char process_name[16];      /* Name of the main thread */
+  struct thread* main_thread; /* Pointer to main thread */
+  struct semaphore sema;
   struct process* parent;
+  struct list children;
+  int ref_count;
+  struct fileDescriptor_list* fileDescriptorTable;
+  int exit_code;
 };
 
 struct fileDescriptor_list {
-  int fdt_count; /* Counter for every file descriptor ever created*/
+  // int fdt_count; /* Counter for every file descriptor ever created*/
   struct list lst;
   struct lock lock;
-};
-
-struct fileDescriptor {
-  //TODO: check process_execute for list init
-  int fd; //entry to global descriptor table
-  struct file* file;
-  struct list_elem elem;
-};
-
-struct child_elem {
-  struct process* process;
-  int completion_status;
-  struct list_elem elem;
 };
 
 void userprog_init(void);
@@ -72,8 +51,12 @@ void process_activate(void);
 bool is_main_thread(struct thread*, struct process*);
 pid_t get_pid(struct process*);
 
-tid_t pthread_execute(stub_fun, pthread_fun, void*);
-tid_t pthread_join(tid_t);
+/* Process Input when running start_process */
+struct process_input {
+  char* file_name;
+  struct process* parent;
+};
+
 void pthread_exit(void);
 void pthread_exit_main(void);
 
