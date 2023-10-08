@@ -175,6 +175,7 @@ int write(int fd, const void* buffer, unsigned size) {
     } else {
       putbuf(buffer, size);
     }
+    //change
     return size;
   }
   struct fileDescriptor open_fd = find_fd(fd);
