@@ -27,6 +27,18 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+  struct semaphore sema;
+  struct process* parent;
+  struct list children;
+  int ref_count;
+  struct fileDescriptor_list* fileDescriptorTable;
+  int exit_code;
+};
+
+struct fileDescriptor_list {
+  // int fdt_count; /* Counter for every file descriptor ever created*/
+  struct list lst;
+  struct lock lock;
 };
 
 void userprog_init(void);
@@ -39,8 +51,12 @@ void process_activate(void);
 bool is_main_thread(struct thread*, struct process*);
 pid_t get_pid(struct process*);
 
-tid_t pthread_execute(stub_fun, pthread_fun, void*);
-tid_t pthread_join(tid_t);
+/* Process Input when running start_process */
+struct process_input {
+  char* file_name;
+  struct process* parent;
+};
+
 void pthread_exit(void);
 void pthread_exit_main(void);
 

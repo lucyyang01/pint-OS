@@ -42,7 +42,31 @@ void userprog_init(void) {
      page directory) when t->pcb is assigned, because a timer interrupt
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
+
+  /* Initialize pagedir and process_name to be null */
   success = t->pcb != NULL;
+  t->pcb->main_thread = t;
+
+  /* Initialize PCB's semaphore*/
+  struct semaphore my_semaphore;
+  t->pcb->sema = my_semaphore;
+  sema_init(&t->pcb->sema, 0);
+
+  /* Child Processes */
+  struct list c;
+  t->pcb->children = c;
+  list_init(&t->pcb->children);
+
+  /* Reference Count*/
+  t->pcb->ref_count = 2;
+
+  /* File Descriptor Table */
+  // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
+  // struct list fdt;
+  // t->pcb->fileDescriptorTable = f;
+  // t->pcb->fileDescriptorTable->lst = fdt;
+
+  // list_init(&t->pcb->fileDescriptorTable);
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -111,8 +135,10 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
+  struct process_input* input = malloc(sizeof(struct process_input));
 
   sema_init(&temporary, 0);
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -120,8 +146,12 @@ pid_t process_execute(const char* file_name) {
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
+  input->parent = thread_current()->pcb;
+  input->file_name = fn_copy;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, input);
+  sema_down(&thread_current()->pcb->sema);
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
     // return TID_ERROR;
@@ -132,8 +162,9 @@ pid_t process_execute(const char* file_name) {
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+static void start_process(void* i) {
+  struct process_input* input = (struct process_input*)i;
+  char* file_name = input->file_name;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -150,6 +181,30 @@ static void start_process(void* file_name_) {
     t->pcb = new_pcb;
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
+
+    /* Initialize PCB's semaphore*/
+    struct semaphore my_semaphore;
+    t->pcb->sema = my_semaphore;
+    sema_init(&t->pcb->sema, 0);
+
+    /* Parent Process */
+    t->pcb->parent = input->parent;
+
+    /* Child Processes */
+    struct list c;
+    t->pcb->children = c;
+    list_init(&t->pcb->children);
+
+    /* Reference Count*/
+    t->pcb->ref_count = 2;
+
+    /* File Descriptor Table */
+    // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
+    // struct list fdt;
+    // t->pcb->fileDescriptorTable = f;
+    // t->pcb->fileDescriptorTable->lst = fdt;
+
+    // list_init(&t->pcb->fileDescriptorTable);
   }
 
   char* programcopy = file_name;
@@ -172,6 +227,9 @@ static void start_process(void* file_name_) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
+    //UP semaphore when process loaded
+    sema_up(&new_pcb->parent->sema);
+    push_to_stack(argc, argv, &if_);
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -197,7 +255,7 @@ static void start_process(void* file_name_) {
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  push_to_stack(argc, argv, &if_);
+
   /* Free the stack. */
   // int x = 0;
   // while (argv[x]!= NULL) {
