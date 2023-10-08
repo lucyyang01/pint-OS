@@ -31,8 +31,8 @@ void init_file_descriptor_list(struct fileDescriptor_list* fdt);
 
 /* Initialize a file descriptor list. */
 void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
-  list_init(&fdt->lst);
-  lock_init(&fdt->lock);
+  list_init(&(fdt->lst));
+  lock_init(&(fdt->lock));
   fdt->fdt_count = 3;
 }
 
@@ -212,7 +212,10 @@ static void start_process(void* i) {
 
     /* File Descriptor Table */
     struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
-    init_file_descriptor_list(&fdt);
+    //struct fileDescriptor_list* fdt;
+    init_file_descriptor_list(fdt);
+
+    t->pcb->fileDescriptorTable = fdt;
     // t->pcb->fileDescriptorTable = f;
     // t->pcb->fileDescriptorTable->lst = fdt;
 

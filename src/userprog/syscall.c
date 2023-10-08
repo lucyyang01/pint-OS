@@ -251,9 +251,6 @@ int filesize(int fd) {
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
 int open(const char* file) {
-  // if (!validate_pointer(file)) {
-  //   return -1;
-  // }
   //open file
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
@@ -262,7 +259,7 @@ int open(const char* file) {
   //add new file descriptor to fdt
   //TODO: deny writes if we open an executable?
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
-  lock_acquire(&fdt->lock);
+  lock_acquire(&(fdt->lock));
   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
   int new_fd = fdt->fdt_count;
   new_entry->fd = new_fd;
@@ -304,5 +301,6 @@ struct fileDescriptor* find_fd(int fd_val) {
       return fileDescriptor_entry;
     }
   }
+  lock_acquire(&fdt->lock);
   return NULL;
 }
