@@ -8,7 +8,6 @@
 #include "userprog/pagedir.h"
 
 static void syscall_handler(struct intr_frame*);
-static bool validate_pointer(void* ptr);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
@@ -19,6 +18,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = -1;
     process_exit();
   }
+
   if (!validate_pointer(&args[1])) {
     f->eax = -1;
     process_exit();
@@ -51,6 +51,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //   f->eax = -1;
     //   process_exit();
     // }
+    if (!validate_pointer(&args)) {
+      f->eax = -1;
+      process_exit();
+    }
+    if (!validate_pointer(args[1])) {
+      f->eax = -1;
+      process_exit();
+    }
     if (!validate_pointer(&args[1])) {
       f->eax = -1;
       process_exit();
@@ -123,26 +131,4 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = file_write(args[1], args[2], args[3]);
     }
   }
-}
-
-static bool validate_pointer(void* ptr) {
-  //need to validate pointer to read/write is also valid
-  //check if ptr is null
-  if (ptr == NULL) {
-    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
-    return false;
-  }
-  //check if ptr is in kernal space
-  if (is_kernel_vaddr(ptr)) {
-    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
-    return false;
-  }
-  //check if ptr is unmapped virtual memory
-  uint32_t* pd = active_pd();
-  void* dog = pagedir_get_page(pd, ptr);
-  if (dog == NULL) {
-    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
-    return false;
-  }
-  return true;
 }

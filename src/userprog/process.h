@@ -59,5 +59,6 @@ struct process_input {
 
 void pthread_exit(void);
 void pthread_exit_main(void);
+bool validate_pointer(void* ptr);
 
 #endif /* userprog/process.h */
