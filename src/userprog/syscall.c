@@ -181,7 +181,12 @@ int write(int fd, const void* buffer, unsigned size) {
   if (open_fd == NULL) {
     return -1;
   }
-  return file_write(open_fd->file, buffer, size);
+  /* Lock file for writing */
+  //file_allow_write(open_fd->file);
+  int bytes_written = file_write(open_fd->file, buffer, size);
+  /* unlock file*/
+  //file_deny_write(open_fd->file);
+  return bytes_written;
 }
 
 /* Reads size bytes from the file open as fd into buffer. 
