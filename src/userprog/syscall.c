@@ -51,10 +51,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //   f->eax = -1;
     //   process_exit();
     // }
-    if (!validate_pointer(&args)) {
-      f->eax = -1;
-      process_exit();
-    }
+    // if (!validate_pointer(&args)) {
+    //   f->eax = -1;
+    //   process_exit();
+    // }
     if (!validate_pointer(args[1])) {
       f->eax = -1;
       process_exit();
@@ -92,7 +92,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     pid_t child = args[1];
     //find child in list of children
     //down semaphore in child
-    process_wait(child);
+    //process_wait(child);
     //when done, store and return exit code from shared data
     //decrement ref count and destroy the data if failed
   }
