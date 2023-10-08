@@ -87,6 +87,7 @@ static void kill(struct intr_frame* f) {
          Kernel code shouldn't throw exceptions.  (Page faults
          may cause kernel exceptions--but they shouldn't arrive
          here.)  Panic the kernel to make the point.  */
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
       printf("Kernel Interruption\n");
       printf("%s: dying due to interrupt %#04x (%s).\n", thread_name(), f->vec_no,
              intr_name(f->vec_no));
