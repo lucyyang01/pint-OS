@@ -7,11 +7,13 @@
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "devices/shutdown.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 
 static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
-bool validate_pointer(void* ptr);
+static bool validate_pointer(void* ptr);
 int filesize(int fd);
 int open(const char* file);
 bool remove(const char* file);
@@ -57,6 +59,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     if (childpid == TID_ERROR) {
       //go to parent process and update exit code
       thread_current()->pcb->exit_code = -1;
+      f->eax = -1;
     } else {
       f->eax = childpid;
     }
@@ -86,10 +89,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
   if (args[0] == SYS_REMOVE) {
     //remove file descriptor
-    filesys_remove(args[1]);
+    filesys_remove((const char*)args[1]);
   }
   if (args[0] == SYS_OPEN) {
-    filesys_open(args[1]);
+    filesys_open((const char*)args[1]);
     //create new file descriptor elem
   }
   if (args[0] == SYS_CLOSE) {
@@ -109,7 +112,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     } else {
       //doesnt work
       //need to get file from file descriptor arg
-      f->eax = file_write(args[1], args[2], args[3]);
+      // f->eax = file_write(args[1], args[2], args[3]);
     }
   }
   if (args[0] == SYS_SEEK) {
@@ -123,24 +126,29 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
 /* Reads size bytes from the file open as fd into buffer. 
 Returns the number of bytes actually read (0 at EOF), or -1 if failed. */
-int read(int fd, void* buffer, unsigned size) {}
+// int read(int fd, void* buffer, unsigned size) {}
 
 /* Returns the size, in bytes, of the open file with file descriptor fd. 
 Returns -1 if fd does not correspond to an entry in the file descriptor table.*/
 int filesize(int fd) {
-  list* fdt = thread_current()->pcb->fileDescriptionTable;
-  list_elem* el;
-  for (el = list_begin(fdt); el != list_end(fdt); el = list_next(el)) {
-    struct
+  struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+  struct list_elem* el;
+  for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
+    struct fileDescriptor* currFD = list_entry(el, struct fileDescriptor, elem);
+    if (currFD->fd == fd) {
+      return file_length(currFD->file);
+    }
   }
+  return -1;
 }
 
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
 int open(const char* file) {
-  if (!validate_pointer(file)) {
-    return -1;
-  }
+  /* Handle validation in syscall handler */
+  // if (!validate_pointer(file)) {
+  //   return -1;
+  // }
   //open file
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
@@ -150,14 +158,14 @@ int open(const char* file) {
   //create a new fileDescriptor_list_elem
   //word_count_t *new_word = malloc(sizeof(word_count_t));
   //list_push_back(&wclist->lst, &new_word->elem);
-  fileDescriptor* new_entry = malloc(sizeof(fileDescriptor));
-  int new_fd = thread_current()->pcb->fileDescriptorTable->fd;
+  struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+  int new_fd = thread_current()->pcb->fileDescriptorTable->fdt_count;
   new_entry->fd = new_fd;
   new_entry->file = opened;
   list_push_back(&thread_current()->pcb->fileDescriptorTable, &new_entry->elem);
   //set the file field to the file returned by filesys_open
   //denywrite function
-  thread_current()->pcb->fdt_count += 1;
+  thread_current()->pcb->fileDescriptorTable->fdt_count += 1;
   return new_fd;
 }
 
@@ -178,7 +186,7 @@ bool create(const char* file, unsigned initialized_size) {
   return filesys_create(file, initialized_size);
 }
 
-bool validate_pointer(void* ptr) {
+static bool validate_pointer(void* ptr) {
   //need to validate pointer to read/write is also valid
   //check if ptr is null
   if (ptr == NULL) {

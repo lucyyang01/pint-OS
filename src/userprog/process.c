@@ -27,6 +27,7 @@ static thread_func start_process NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
+void init_file_descriptor_list(struct fileDescriptor_list* fdt);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -42,6 +43,40 @@ void userprog_init(void) {
      page directory) when t->pcb is assigned, because a timer interrupt
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
+  t->pcb->pagedir = NULL;
+  // Continue initializing the PCB as normal
+  t->pcb->main_thread = t;
+
+  /* Initialize a semaphore*/
+  struct semaphore my_semaphore;
+  t->pcb->sema = my_semaphore;
+  sema_init(&t->pcb->sema, 0);
+
+  /* Parent Process */
+  t->pcb->parent = NULL;
+
+  /* Child Processes */
+  struct list c;
+  t->pcb->children = c;
+  list_init(&t->pcb->children);
+
+  /* Reference Count */
+  t->pcb->ref_count = 2;
+
+  /* File Descriptor Table */
+  struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
+  init_file_descriptor_list(fdt);
+  t->pcb->fileDescriptorTable = fdt;
+
+  /* Exit Code */
+  t->pcb->exit_code = 0;
+
+  /* Waited on or not */
+  t->pcb->waited = false;
+
+  /* Initialize file descriptor count*/
+  // t->pcb->ref_count = 2; //open() should start at fd = 2
+
   success = t->pcb != NULL;
 
   /* Kill the kernel if we did not succeed */
@@ -49,8 +84,8 @@ void userprog_init(void) {
 }
 
 /* Initialize a file descriptor list. */
-void init_file_descriptor_list(struct fileDescriptor_list *fdt) {
-  list_init(&fdt);
+void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
+  list_init(&fdt->lst);
   lock_init(&fdt->lock);
 }
 
@@ -117,10 +152,9 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
-  struct *proccess_input input;
+  struct process_input* input = malloc(sizeof(struct process_input));
 
-
-  stru sema_init(&temporary, 0);
+  sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
@@ -129,26 +163,27 @@ pid_t process_execute(const char* file_name) {
   strlcpy(fn_copy, file_name, PGSIZE);
 
   //Modify parent struct
-  struct process *parent = thread_current()->pcb;
+  struct process* parent = thread_current()->pcb;
   input->parent = parent;
-  input->file_name = file_name;
-
+  input->file_name = fn_copy;
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(input, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, input);
   //down semaphore in parent
-  sema_down(parent->sema);
+  //sema_down(&parent->sema);
+  //add to children
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
     // return TID_ERROR;
-    free(tid);
+    free(&tid);
   }
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* input) {
-  struct process_input* input = (struct process_input*)input;
+static void start_process(void* i) {
+  struct process_input* input = (struct process_input*)i;
+  char* file_name = input->file_name;
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -183,9 +218,9 @@ static void start_process(void* input) {
     t->pcb->ref_count = 2;
 
     /* File Descriptor Table */
-    struct list f;
-    t->pcb->fileDescriptorTable = f;
-    list_init(&t->pcb->fileDescriptorTable);
+    struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
+    init_file_descriptor_list(fdt);
+    t->pcb->fileDescriptorTable = fdt;
 
     /* Exit Code */
     t->pcb->exit_code = 0;
@@ -194,7 +229,7 @@ static void start_process(void* input) {
     t->pcb->waited = false;
 
     /* Initialize file descriptor count*/
-    t->pcb->fdt_count = 1; //open() should start at fd = 2
+    t->pcb->ref_count = 2; //open() should start at fd = 2
   }
 
   char* programcopy = input->file_name;
@@ -227,6 +262,7 @@ static void start_process(void* input) {
     struct process* pcb_to_free = t->pcb;
     t->pcb = NULL;
     free(pcb_to_free);
+    free(input);
   }
 
   /* Clean up. Exit on failure or jump to userspace */
@@ -235,7 +271,9 @@ static void start_process(void* input) {
     sema_up(&temporary);
     thread_exit();
   }
-  sema_up();
+  t->pcb->success = true;
+  //up Semaphore
+  //sema_up(&t->pcb->parent->sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

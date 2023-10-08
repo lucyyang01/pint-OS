@@ -35,6 +35,7 @@ struct process {
   int exit_code;                                   /* Exit code for Parent Processes */
   bool waited;                                     /* Being waited on or not */
   pid_t pid;
+  bool success; /*BOOL for if the process loaded successfully*/
 };
 
 struct process_input {
