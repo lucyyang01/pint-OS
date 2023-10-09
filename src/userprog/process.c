@@ -263,8 +263,7 @@ static void start_process(void* i) {
 
     /* Save kernel FPU. Init new FPU, Save.*/
     char fpu_buf[108];
-    asm volatile("fsave (%0); fninit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&if_.fpu),
-                 "g"(&fpu_buf));
+    asm("fsave (%0); finit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&if_.fpu), "g"(&fpu_buf));
     //UP semaphore when process loaded
     if (success) {
       //add child to parent child list;

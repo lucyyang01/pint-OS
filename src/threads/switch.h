@@ -4,14 +4,14 @@
 #ifndef __ASSEMBLER__
 /* switch_thread()'s stack frame. */
 struct switch_threads_frame {
+  char fpu[108];       /* 16: FPU array. */
   uint32_t edi;        /*  0: Saved %edi. */
   uint32_t esi;        /*  4: Saved %esi. */
   uint32_t ebp;        /*  8: Saved %ebp. */
   uint32_t ebx;        /* 12: Saved %ebx. */
-  uint32_t fpu;        /* 16: Saved FPU state. */
-  void (*eip)(void);   /* 20: Return address. */
-  struct thread* cur;  /* 24: switch_threads()'s CUR argument. */
-  struct thread* next; /* 26: switch_threads()'s NEXT argument. */
+  void (*eip)(void);   /* 16: Return address. */
+  struct thread* cur;  /* 20: switch_threads()'s CUR argument. */
+  struct thread* next; /* 24: switch_threads()'s NEXT argument. */
 };
 
 /* Switches from CUR, which must be the running thread, to NEXT,
@@ -32,7 +32,7 @@ void switch_thunk(void);
 #endif
 
 /* Offsets used by switch.S. */
-#define SWITCH_CUR 20
-#define SWITCH_NEXT 24
+#define SWITCH_CUR 128
+#define SWITCH_NEXT 132
 
 #endif /* threads/switch.h */
