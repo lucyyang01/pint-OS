@@ -12,7 +12,8 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include <devices/shutdown.h>
-#include "lib/float.h"
+#include <float.h>
+
 
 static void syscall_handler(struct intr_frame* f UNUSED);
 int compute_e(int n);
@@ -28,6 +29,7 @@ int filesize(int fd);
 int open(const char* file);
 bool remove(const char* file);
 bool create(const char* file, unsigned initialized_size);
+double compute_e(int n);
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -168,8 +170,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
 }
 
-/* Computes the value of e. */
-int compute_e(int n) { return sys_sum_to_e(n); }
+double compute_e(int n) { return (double)sys_sum_to_e(n); }
+
 
 /*Closes file descriptor fd. If the operation is unsuccessful, it fails silently.*/
 void close(int fd) {

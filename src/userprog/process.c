@@ -234,7 +234,6 @@ static void start_process(void* i) {
     t->pcb->exit_code = -1;
     /* File Descriptor Table */
     struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
-    //struct fileDescriptor_list* fdt;
     init_file_descriptor_list(fdt);
 
     t->pcb->fileDescriptorTable = fdt;
@@ -261,6 +260,11 @@ static void start_process(void* i) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
     input->success = success;
+
+    /* Save kernel FPU. Init new FPU, Save.*/
+    char fpu_buf[108];
+    asm volatile("fsave (%0); fninit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&if_.fpu),
+                 "g"(&fpu_buf));
     //UP semaphore when process loaded
     if (success) {
       //add child to parent child list;
