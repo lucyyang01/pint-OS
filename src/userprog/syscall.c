@@ -150,6 +150,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = read(args[1], (char*)args[2], args[3]);
   }
   if (args[0] == SYS_WRITE) {
+
     if (!validate_pointer(args[2])) {
       f->eax = -1;
       process_exit();

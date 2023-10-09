@@ -399,7 +399,7 @@ void process_exit(void) {
 
   /* Close file if it exists */
   if (cur->pcb->f != NULL) {
-    close(cur->pcb->f);
+    file_close(cur->pcb->f);
   }
 
   /* If this thread does not have a PCB, don't worry */
