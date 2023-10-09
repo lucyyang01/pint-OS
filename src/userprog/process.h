@@ -37,9 +37,10 @@ struct process {
   int exit_code;
   pid_t pid;
   bool waited;
+  struct file* f;
 };
 
-/*children list elmenet*/
+/*children list elmenent*/
 struct child_list_elem {
   pid_t pid;
   int exit_code;
