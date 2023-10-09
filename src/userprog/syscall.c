@@ -38,6 +38,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   if (args[0] == SYS_EXIT) {
     f->eax = args[1];
+    thread_current()->pcb->exit_code = args[1];
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
     process_exit();
   }
@@ -85,7 +86,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     pid_t child = args[1];
     //find child in list of children
     //down semaphore in child
-    //process_wait(child);
+    f->eax = process_wait(child);
     //when done, store and return exit code from shared data
     //decrement ref count and destroy the data if failed
   }

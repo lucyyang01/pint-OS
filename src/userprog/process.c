@@ -42,23 +42,32 @@ void userprog_init(void) {
      page directory) when t->pcb is assigned, because a timer interrupt
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
-
+  //strlcpy(t->pcb->process_name, "test", 5 * sizeof(char));
   /* Initialize pagedir and process_name to be null */
   success = t->pcb != NULL;
   t->pcb->main_thread = t;
 
-  /* Initialize PCB's semaphore*/
-  struct semaphore my_semaphore;
-  t->pcb->sema = my_semaphore;
-  sema_init(&t->pcb->sema, 0);
+  /* Initialize PCB's exec semaphore*/
+  struct semaphore semaphore_exec;
+  t->pcb->sema_exec = semaphore_exec;
+  sema_init(&t->pcb->sema_exec, 0);
+
+  /* Initialize PCB's wait semaphore*/
+  struct semaphore semaphore_wait;
+  t->pcb->sema_wait = semaphore_wait;
+  sema_init(&t->pcb->sema_wait, 0);
 
   /* Child Processes */
-  struct list c;
-  t->pcb->children = c;
+  // struct list c;
+  // t->pcb->children = c;
   list_init(&t->pcb->children);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
+
+  t->pcb->pid = t->tid;
+
+  t->pcb->exit_code = -1;
 
   /* File Descriptor Table */
   // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
@@ -152,13 +161,14 @@ pid_t process_execute(const char* file_name) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, input);
-  sema_down(&thread_current()->pcb->sema);
-  if (!input->success) {
-    return TID_ERROR;
-  }
+  sema_down(&thread_current()->pcb->sema_exec);
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
     // return TID_ERROR;
+  }
+  if (!input->success) {
+    free(input);
+    return TID_ERROR;
   }
 
   return tid;
@@ -188,20 +198,29 @@ static void start_process(void* i) {
 
     /* Initialize PCB's semaphore*/
     struct semaphore my_semaphore;
-    t->pcb->sema = my_semaphore;
-    sema_init(&t->pcb->sema, 0);
+    t->pcb->sema_exec = my_semaphore;
+    sema_init(&t->pcb->sema_exec, 0);
+
+    /* Initialize PCB's wait semaphore*/
+    struct semaphore semaphore_wait;
+    t->pcb->sema_wait = semaphore_wait;
+    sema_init(&t->pcb->sema_wait, 0);
 
     /* Parent Process */
     t->pcb->parent = input->parent;
 
     /* Child Processes */
-    struct list c;
-    t->pcb->children = c;
+    // struct list c;
+    // t->pcb->children = c;
     list_init(&t->pcb->children);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
 
+    /* PID of process */
+    t->pcb->pid = t->tid;
+
+    t->pcb->exit_code = -1;
     /* File Descriptor Table */
     // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
     // struct list fdt;
@@ -233,11 +252,25 @@ static void start_process(void* i) {
     success = load(file_name, &if_.eip, &if_.esp);
     input->success = success;
     //UP semaphore when process loaded
-    sema_up(&new_pcb->parent->sema);
+    if (success) {
+      //add child to parent child list;
+      struct child_list_elem* child = malloc(sizeof(struct child_list_elem));
+      memset(child, 0, sizeof(struct child_list_elem));
+
+      child->pid = t->tid;
+      child->exited = false;
+      child->exit_code = -1;
+      struct list_elem list = {NULL, NULL};
+      child->elem = list;
+      child->proc = new_pcb;
+      list_push_back(&input->parent->children, &child->elem);
+    }
+    sema_up(&new_pcb->parent->sema_exec);
     if (!success) {
       if_.eax = -1;
       thread_exit();
     }
+
     push_to_stack(argc, argv, &if_);
   }
 
@@ -286,8 +319,67 @@ static void start_process(void* i) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
-  return 0;
+  // sema_down(&temporary);
+
+  struct list children = thread_current()->pcb->children;
+  int exit_code = -1;
+  bool foundChild = false;
+  if (list_empty(&children)) {
+    return -1;
+  }
+  /* Iterate through a process's children to down */
+  struct list_elem* element;
+  for (element = list_begin(&children); element != list_end(&children);
+       element = list_next(element)) {
+    struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+    pid_t entry_pid = c->pid;
+
+    /* Finds child no matter if the child has exited or not */
+    if (entry_pid == child_pid) {
+      foundChild = true;
+      /* Child has not been waited and hasn't exited */
+      if (!c->waited && !c->exited) {
+        c->waited = true;
+        c->proc->waited = true;
+        exit_code = c->exit_code;
+        // Down
+        sema_down(&c->proc->sema_wait);
+        exit_code = c->exit_code;
+        break;
+      }
+      // /* Child has not been waited and has exited */
+      else if (!c->waited && c->exited) {
+        c->waited = true;
+        return c->exit_code;
+      } else if (c->waited) {
+        return -1;
+      }
+    }
+    if (element->next == NULL) {
+      break;
+    }
+  }
+  // while (element != NULL && element != list_tail(&children)) {
+  //   struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+  //   struct process* entry = c->child;
+  //   pid_t entry_pid = entry->pid;
+  //   if (entry_pid == child_pid) {
+  //     foundChild = true;
+  //     if (!entry->waited) {
+  //       entry->waited = true;
+  //       // Down
+  //       sema_down(&entry->sema_wait);
+  //       break;
+  //     } else {
+  //       return -1;
+  //     }
+  //   }
+  //   element = list_next(element);
+  // }
+  if (!foundChild) {
+    return -1;
+  }
+  return exit_code;
 }
 
 /* Free the current process's resources. */
@@ -299,6 +391,31 @@ void process_exit(void) {
   if (cur->pcb == NULL) {
     thread_exit();
     NOT_REACHED();
+  }
+
+  struct process* parent = cur->pcb->parent;
+
+  if (parent != NULL) {
+    struct list children = parent->children;
+    struct list_elem* element;
+    struct list_elem* cool = list_end(&children);
+    bool e = list_empty(&children);
+    for (element = list_begin(&children); element != list_end(&children);
+         element = list_next(element)) {
+      struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+      pid_t entry_pid = c->pid;
+      if (cur->pcb->pid == entry_pid) {
+        /* Set child element struct's exit code and status */
+        c->exited = true;
+        c->exit_code = cur->pcb->exit_code;
+        break;
+      }
+    }
+  }
+
+  /* Up parent semaphore if is being waited upon */
+  if (cur->pcb->waited) {
+    sema_up(&cur->pcb->sema_wait);
   }
 
   /* Destroy the current process's page directory and switch back
@@ -325,7 +442,7 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  sema_up(&temporary);
+  // sema_up(&temporary);
   thread_exit();
 }
 
