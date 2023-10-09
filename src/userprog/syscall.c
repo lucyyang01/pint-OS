@@ -12,8 +12,10 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include <devices/shutdown.h>
+#include "lib/float.h"
 
 static void syscall_handler(struct intr_frame* f UNUSED);
+int compute_e(int n);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 bool validate_pointer(void* ptr);
 void close(int fd);
@@ -160,9 +162,13 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_TELL) {
     f->eax = tell(args[1]);
   }
+  if (args[0] == SYS_COMPUTE_E) {
+    f->eax = compute_e(args[1]);
+  }
 }
 
-//GLOBAL FILE LOCK?
+/* Computes the value of e. */
+int compute_e(int n) { return sys_sum_to_e(n); }
 
 /*Closes file descriptor fd. If the operation is unsuccessful, it fails silently.*/
 void close(int fd) {
@@ -172,7 +178,6 @@ void close(int fd) {
   //close file
   file_close(close_fd->file);
   //remove fd from fdt
-  //struct list_elem* list_remove(struct list_elem*);
   lock_acquire(&thread_current()->pcb->fileDescriptorTable->lock);
   list_remove(&close_fd->elem);
   lock_release(&thread_current()->pcb->fileDescriptorTable->lock);
@@ -201,9 +206,6 @@ Returns the number of bytes actually written, which may be less than size
 if some bytes could not be written. Returns -1 if fd does not correspond 
 to an entry in the file descriptor table.*/
 int write(int fd, const void* buffer, unsigned size) {
-  // if (!validate_pointer(buffer)) {
-  //   return -1;
-  // }
   if (fd == 1) {
     int bytes_written = 0;
     if (size > 300) {
@@ -229,7 +231,6 @@ int write(int fd, const void* buffer, unsigned size) {
 /* Reads size bytes from the file open as fd into buffer. 
 Returns the number of bytes actually read (0 at EOF), or -1 if failed. */
 int read(int fd, void* buffer, unsigned size) {
-  //deny writes?
   struct fileDescriptor* read_fd = find_fd(fd);
   if (read_fd == NULL)
     return -1;
@@ -253,8 +254,6 @@ int open(const char* file) {
   if (opened == NULL) {
     return -1;
   }
-  //add new file descriptor to fdt
-  //TODO: deny writes if we open an executable?
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
   lock_acquire(&(fdt->lock));
   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
@@ -268,19 +267,11 @@ int open(const char* file) {
 }
 
 /* Deletes the file named file. Returns true if successful, false otherwise. */
-bool remove(const char* file) {
-  // if (!validate_pointer(file)) {
-  //   return false;
-  // }
-  return filesys_remove(file);
-}
+bool remove(const char* file) { return filesys_remove(file); }
 
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
 bool create(const char* file, unsigned initialized_size) {
-  // if (!validate_pointer(file)) {
-  //   return false;
-  // }
   return filesys_create(file, initialized_size);
 }
 

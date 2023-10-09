@@ -167,6 +167,9 @@ pid_t process_execute(const char* file_name) {
   input->file_name = fn_copy;
   input->success = false;
 
+  /* Save FPU of current thread. */
+  //asm("fsave (%0)" : : "g"(&(thread_current()->fpu)));
+
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, input);
   sema_down(&thread_current()->pcb->sema_exec);
@@ -235,10 +238,6 @@ static void start_process(void* i) {
     init_file_descriptor_list(fdt);
 
     t->pcb->fileDescriptorTable = fdt;
-    // t->pcb->fileDescriptorTable = f;
-    // t->pcb->fileDescriptorTable->lst = fdt;
-
-    // list_init(&t->pcb->fileDescriptorTable);
   }
 
   char* programcopy = file_name;

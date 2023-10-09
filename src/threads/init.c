@@ -135,6 +135,9 @@ int main(void) {
   /* Run actions specified on kernel command line. */
   run_actions(argv);
 
+  /* Initialize FPU. */
+  asm("fninit");
+
   /* Finish up. */
   shutdown();
   thread_exit();
