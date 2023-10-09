@@ -14,9 +14,7 @@
 #include <devices/shutdown.h>
 #include <float.h>
 
-
 static void syscall_handler(struct intr_frame* f UNUSED);
-int compute_e(int n);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 bool validate_pointer(void* ptr);
 void close(int fd);
@@ -171,7 +169,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 }
 
 double compute_e(int n) { return (double)sys_sum_to_e(n); }
-
 
 /*Closes file descriptor fd. If the operation is unsuccessful, it fails silently.*/
 void close(int fd) {

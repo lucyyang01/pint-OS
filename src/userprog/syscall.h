@@ -14,4 +14,5 @@ int filesize(int fd);
 int open(const char* file);
 bool remove(const char* file);
 bool create(const char* file, unsigned initialized_size);
+double compute_e(int n);
 #endif /* userprog/syscall.h */
