@@ -398,6 +398,11 @@ void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
+  /* Close file if it exists */
+  if (cur->pcb->f != NULL) {
+    close(cur->pcb->f);
+  }
+
   /* If this thread does not have a PCB, don't worry */
   if (cur->pcb == NULL) {
     thread_exit();
@@ -559,10 +564,12 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
   /* Open executable file. */
   file = filesys_open(file_name);
+  t->pcb->f = file;
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;
   }
+  file_deny_write(file);
 
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
@@ -633,7 +640,8 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+  // file_allow_write(file);
+  //file_close(file);
   return success;
 }
 
