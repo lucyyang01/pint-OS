@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include <devices/shutdown.h>
+#include <float.h>
 
 static void syscall_handler(struct intr_frame* f UNUSED);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
@@ -26,6 +27,7 @@ int filesize(int fd);
 int open(const char* file);
 bool remove(const char* file);
 bool create(const char* file, unsigned initialized_size);
+double compute_e(int n);
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -161,7 +163,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_TELL) {
     f->eax = tell(args[1]);
   }
+  if (args[0] == SYS_COMPUTE_E) {
+    f->eax = compute_e(args[1]);
+  }
 }
+
+double compute_e(int n) { return (double)sys_sum_to_e(n); }
 
 //GLOBAL FILE LOCK?
 
