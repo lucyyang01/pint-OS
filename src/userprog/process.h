@@ -28,12 +28,25 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
-  struct semaphore sema;
+  struct semaphore sema_exec;
+  struct semaphore sema_wait;
   struct process* parent;
   struct list children;
   int ref_count;
   struct fileDescriptor_list* fileDescriptorTable;
   int exit_code;
+  pid_t pid;
+  bool waited;
+};
+
+/*children list elmenet*/
+struct child_list_elem {
+  pid_t pid;
+  int exit_code;
+  struct list_elem elem;
+  bool waited;
+  bool exited;
+  struct process* proc;
 };
 
 struct fileDescriptor_list {
