@@ -19,7 +19,7 @@ wait-simple wait-twice wait-killed wait-bad-pid multi-recurse           \
 multi-child-fd rox-simple rox-child rox-multichild bad-read bad-write   \
 bad-read2 bad-write2 bad-jump bad-jump2 iloveos practice stack-align-1  \
 stack-align-2 stack-align-3 stack-align-4 floating-point fp-simul       \
-fp-asm fp-syscall fp-kernel-e fp-init)
+fp-asm fp-syscall fp-kernel-e fp-init exec-empty)
 
 tests/userprog_PROGS = $(tests/userprog_TESTS) $(addprefix \
 tests/userprog/,child-simple child-args child-bad child-close \
@@ -128,6 +128,8 @@ tests/userprog/fp-asm-helper_SRC = tests/userprog/fp-asm-helper.c
 tests/userprog/fp-syscall_SRC = tests/userprog/fp-syscall.c tests/main.c
 tests/userprog/fp-kernel-e_SRC = tests/userprog/fp-kernel-e.c tests/main.c
 tests/userprog/fp-init_SRC = tests/userprog/fp-init.c tests/main.c
+
+tests/userprog/exec-empty_SRC = tests/userprog/exec-empty.c tests/main.c
 
 
 $(foreach prog,$(tests/userprog_PROGS),$(eval $(prog)_SRC += tests/lib.c))
