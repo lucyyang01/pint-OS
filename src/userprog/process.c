@@ -91,6 +91,7 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
     argAddress[i] = if_->esp;
 
     memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
+    free(argv[i]);
   }
 
   /* Calculate total size that will be pushed after alignment. */
@@ -163,11 +164,13 @@ pid_t process_execute(const char* file_name) {
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
   }
+
   if (!input->success) {
-    free(input);
     return TID_ERROR;
   }
-
+  if (input->success) {
+    free(input);
+  }
   return tid;
 }
 
@@ -264,6 +267,7 @@ static void start_process(void* i) {
     sema_up(&new_pcb->parent->sema_exec);
     if (!success) {
       if_.eax = -1;
+      free(i);
       thread_exit();
     }
 
@@ -284,6 +288,7 @@ static void start_process(void* i) {
   palloc_free_page(file_name);
   if (!success) {
     sema_up(&temporary);
+    free(i);
     thread_exit();
   }
 
