@@ -376,8 +376,7 @@ void process_exit(void) {
   if (parent != NULL) {
     struct list children = parent->children;
     struct list_elem* element;
-    struct list_elem* cool = list_end(&children);
-    bool e = list_empty(&children);
+
     for (element = list_begin(&children); element != list_end(&children);
          element = list_next(element)) {
       struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
