@@ -205,9 +205,13 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   sf = alloc_frame(t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
-  sf->fpu = (uint32_t)t->stack;
-  asm("fsave (%0)" ::"g"(&sf->fpu));
 
+  // 1 for interrupt frame in start_process
+
+  // setp up fpu
+  // store kernel fpu somewhere and // svae. init, save, resotre
+  char fpu_buf[108];
+  asm("fsave (%0); fninit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&sf->fpu), "g"(&fpu_buf));
   /* Add to run queue. */
   thread_unblock(t);
 

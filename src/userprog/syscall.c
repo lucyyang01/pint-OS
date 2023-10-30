@@ -1,5 +1,4 @@
 #include "userprog/syscall.h"
-// #include <stdlib.h>
 #include "threads/malloc.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -41,18 +40,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     process_exit();
   }
 
-  // if (!validate_pointer(&args[1])) {
-  //   f->eax = -1;
-  //   process_exit();
-  // }
   /*
    * The following print statement, if uncommented, will print out the syscall
    * number whenever a process enters a system call. You might find it useful
    * when debugging. It will cause tests to fail, however, so you should not
    * include it in your final submission.
    */
-
-  //printf("System call number: %d\n", args[0]);
 
   if (args[0] == SYS_EXIT) {
     f->eax = args[1];
