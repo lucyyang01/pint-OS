@@ -93,6 +93,16 @@ struct thread {
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
+  /*List element for wait list*/
+  struct list_elem wait_elem;
+
+  /*Sleeping variables*/
+  int64_t wakeup_time; /*The time that the thread should wake up*/
+  bool is_sleeping;    /*bool to determing is thread is alseep*/
+
+  /* sychronization variable */
+  struct lock lock;
+
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
