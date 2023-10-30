@@ -23,6 +23,7 @@
 char* strdup(const char* str);
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
+static thread_func start_pthread NO_RETURN;
 
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
@@ -777,6 +778,13 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    now, it does nothing. You may find it necessary to change the
    function signature. */
 bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
+
+/* A thread function that creates a new user thread and starts it
+   running. Responsible for adding itself to the list of threads in
+   the PCB.
+   This function will be implemented in Project 2: Multithreading and
+   should be similar to start_process (). For now, it does nothing. */
+static void start_pthread(void* exec_ UNUSED) {}
 
 /* Starts a new thread with a new user stack running SF, which takes
    TF and ARG as arguments on its user stack. This new thread may be
