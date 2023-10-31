@@ -103,6 +103,11 @@ struct thread {
   /* sychronization variable */
   struct lock lock;
 
+  /* Priority Donation Variables */
+  int effective;              /* Effective priority of thread */
+  struct lock donated_lock;   /* Thread we donated priority to */
+  struct list donating_locks; /* List of all threads who have donated to us */
+
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
