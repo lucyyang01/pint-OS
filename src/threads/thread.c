@@ -28,6 +28,9 @@ static struct list fifo_ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/*List of all sleeping threads. */
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread* idle_thread;
 
@@ -109,6 +112,7 @@ void thread_init(void) {
   lock_init(&tid_lock);
   list_init(&fifo_ready_list);
   list_init(&all_list);
+  list_init(&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread();
@@ -570,3 +574,24 @@ static tid_t allocate_tid(void) {
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+/* Compares the wait times of two threads 
+*/
+bool wait_less(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED) {
+  struct thread* first = list_entry(a, struct thread, elem);
+  struct thread* second = list_entry(b, struct thread, elem);
+
+  if (first->wakeup_time < second->wakeup_time) {
+    return true;
+  }
+  return false;
+}
+
+void add_sleepy(struct thread* t) {
+  list_insert_ordered(&sleep_list, &t->wait_elem, wait_less, NULL);
+}
+
+struct list* get_sleepy() {
+  return &sleep_list;
+}
+void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
