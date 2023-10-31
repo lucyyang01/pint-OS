@@ -256,7 +256,7 @@ static void thread_enqueue(struct thread* t) {
     // Create new priority queue elelement
     struct pq_elem* pq_el = malloc(sizeof(struct pq_elem));
     pq_el->t = t;
-    pq_el->priority = t->priority;
+    pq_el->priority = t->effective;
 
     // Insert element into priority queue ordered using our priority comparer.
     list_insert_ordered(&priority_queue.queue, &pq_el->elem, greater_list, greater_prio);
