@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "threads/malloc.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -65,7 +66,7 @@ static void* alloc_frame(struct thread*, size_t size);
 static void thread_enqueue(struct thread* t);
 static tid_t allocate_tid(void);
 void thread_switch_tail(struct thread* prev);
-
+static void schedule(void);
 static void kernel_thread(thread_func*, void* aux);
 static void idle(void* aux UNUSED);
 static struct thread* running_thread(void);
@@ -76,6 +77,8 @@ static struct thread* thread_schedule_prio(void);
 static struct thread* thread_schedule_fair(void);
 static struct thread* thread_schedule_mlfqs(void);
 static struct thread* thread_schedule_reserved(void);
+static bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
+static bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
 
 /* Determines which scheduler the kernel should use.
    Controlled by the kernel command-line options
@@ -249,7 +252,15 @@ static void thread_enqueue(struct thread* t) {
 
   if (active_sched_policy == SCHED_FIFO)
     list_push_back(&fifo_ready_list, &t->elem);
-  else
+  else if (active_sched_policy == SCHED_PRIO) {
+    // Create new priority queue elelement
+    struct pq_elem* pq_el = malloc(sizeof(struct pq_elem));
+    pq_el->t = t;
+    pq_el->priority = t->priority;
+
+    // Insert element into priority queue ordered using our priority comparer.
+    list_insert_ordered(&priority_queue.queue, &pq_el->elem, greater_list, greater_prio);
+  } else
     PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
 }
 
@@ -548,7 +559,7 @@ void thread_switch_tail(struct thread* prev) {
 
    It's not safe to call printf() until thread_switch_tail()
    has completed. */
-void schedule(void) {
+static void schedule(void) {
   struct thread* cur = running_thread();
   struct thread* next = next_thread_to_run();
   struct thread* prev = NULL;
@@ -599,7 +610,25 @@ struct list* get_sleepy() {
 }
 void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
 
+/* Initialize the priority queue. */
 void priority_queue_init(struct priority_queue* pq) {
   list_init(&pq->queue);
   lock_init(&pq->pq_lock);
+}
+
+/* Comparator to sort list by priority. */
+static bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
+  struct pq_elem* pq_e1 = list_entry(pq_elem1, struct pq_elem, elem);
+  struct pq_elem* pq_e2 = list_entry(pq_elem2, struct pq_elem, elem);
+  if (pq_e1->priority > pq_e2->priority) {
+    return true;
+  }
+  return false;
+}
+
+static bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux) {
+  struct pq_elem* pq1 = list_entry(pq_e1, struct pq_elem, elem);
+  struct pq_elem* pq2 = list_entry(pq_e2, struct pq_elem, elem);
+  bool (*compare)(const struct pq_elem* pq1, const struct pq_elem* pq2) = aux;
+  return compare(pq1, pq2);
 }
