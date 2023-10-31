@@ -25,10 +25,7 @@
 static struct list fifo_ready_list;
 
 /* List of threads in THREAD_READY state ordered by priority. */
-static struct list priority_queue;
-
-/* Lock used for priority queue. */
-static struct lock pq_lock;
+static struct priority_queue priority_queue;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -65,7 +62,6 @@ static unsigned thread_ticks; /* # of timer ticks since last yield. */
 static void init_thread(struct thread*, const char* name, int priority);
 static bool is_thread(struct thread*) UNUSED;
 static void* alloc_frame(struct thread*, size_t size);
-static void schedule(void);
 static void thread_enqueue(struct thread* t);
 static tid_t allocate_tid(void);
 void thread_switch_tail(struct thread* prev);
@@ -116,9 +112,8 @@ void thread_init(void) {
   ASSERT(intr_get_level() == INTR_OFF);
 
   lock_init(&tid_lock);
-  //list_init(&fifo_ready_list);
-  list_init(&priority_queue);
-  lock_init(&pq_lock);
+  list_init(&fifo_ready_list);
+  priority_queue_init(&priority_queue);
   list_init(&all_list);
   list_init(&sleep_list);
 
@@ -553,7 +548,7 @@ void thread_switch_tail(struct thread* prev) {
 
    It's not safe to call printf() until thread_switch_tail()
    has completed. */
-static void schedule(void) {
+void schedule(void) {
   struct thread* cur = running_thread();
   struct thread* next = next_thread_to_run();
   struct thread* prev = NULL;
@@ -603,3 +598,8 @@ struct list* get_sleepy() {
   return &sleep_list;
 }
 void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
+
+void priority_queue_init(struct priority_queue* pq) {
+  list_init(&pq->queue);
+  lock_init(&pq->pq_lock);
+}

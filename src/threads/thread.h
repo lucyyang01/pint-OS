@@ -133,6 +133,18 @@ enum sched_policy {
  * Is equal to SCHED_FIFO by default. */
 extern enum sched_policy active_sched_policy;
 
+/* The element of the priority queue. Keeps track of thread and its priority. */
+struct pq_elem {
+  struct thread* t;
+  int priority;
+};
+
+/* The Priority Queue. Contains a list of pq_elem and a lock. */
+struct priority_queue {
+  struct list queue;
+  struct lock pq_lock;
+};
+
 void thread_init(void);
 void thread_start(void);
 
@@ -151,6 +163,8 @@ const char* thread_name(void);
 
 void thread_exit(void) NO_RETURN;
 void thread_yield(void);
+
+void priority_queue_init(struct priority_queue* pq);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func(struct thread* t, void* aux);
