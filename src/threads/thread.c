@@ -24,6 +24,12 @@
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
 
+/* List of threads in THREAD_READY state ordered by priority. */
+static struct list priority_queue;
+
+/* Lock used for priority queue. */
+static struct lock pq_lock;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -110,7 +116,9 @@ void thread_init(void) {
   ASSERT(intr_get_level() == INTR_OFF);
 
   lock_init(&tid_lock);
-  list_init(&fifo_ready_list);
+  //list_init(&fifo_ready_list);
+  list_init(&priority_queue);
+  lock_init(&pq_lock);
   list_init(&all_list);
   list_init(&sleep_list);
 
