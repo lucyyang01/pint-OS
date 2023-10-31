@@ -23,11 +23,19 @@
 char* strdup(const char* str);
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
-// static thread_func start_pthread NO_RETURN;
+static thread_func start_pthread NO_RETURN;
+
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
 void init_file_descriptor_list(struct fileDescriptor_list* fdt);
+
+/* Initialize a file descriptor list. */
+void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
+  list_init(&(fdt->lst));
+  lock_init(&(fdt->lock));
+  fdt->fdt_count = 3;
+}
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -48,35 +56,29 @@ void userprog_init(void) {
   success = t->pcb != NULL;
   t->pcb->main_thread = t;
 
-  /* Initialize PCB's semaphore*/
-  struct semaphore my_semaphore;
-  t->pcb->sema = my_semaphore;
-  sema_init(&t->pcb->sema, 0);
+  /* Initialize PCB's exec semaphore*/
+  struct semaphore semaphore_exec;
+  t->pcb->sema_exec = semaphore_exec;
+  sema_init(&t->pcb->sema_exec, 0);
+
+  /* Initialize PCB's wait semaphore*/
+  struct semaphore semaphore_wait;
+  t->pcb->sema_wait = semaphore_wait;
+  sema_init(&t->pcb->sema_wait, 0);
 
   /* Child Processes */
-  struct list c;
-  t->pcb->children = c;
+
   list_init(&t->pcb->children);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
 
-  /* File Descriptor Table */
-  // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
-  // struct list fdt;
-  // t->pcb->fileDescriptorTable = f;
-  // t->pcb->fileDescriptorTable->lst = fdt;
+  t->pcb->pid = t->tid;
 
-  // list_init(&t->pcb->fileDescriptorTable);
+  t->pcb->exit_code = -1;
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
-}
-
-/* Initialize a file descriptor list. */
-void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
-  list_init(&fdt->lst);
-  lock_init(&fdt->lock);
 }
 
 /* Push arguments to Stack. */
@@ -86,10 +88,11 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
   char* argAddress[argc + 1];
 
   for (int i = argc - 1; i >= 0; i--) {
-    if_->esp = if_->esp - strlen(argv[i]) - 1; //esp = esp - len(arg)
+    if_->esp = if_->esp - strlen(argv[i]) - 1;
     argAddress[i] = if_->esp;
 
     memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
+    free(argv[i]);
   }
 
   /* Calculate total size that will be pushed after alignment. */
@@ -105,18 +108,11 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
   if_->esp = if_->esp - 4;
   *(uint32_t*)if_->esp = 0; // Push NULL onto the stack.
 
-  // argAddress[argc] = NULL;
-  //align esp to 16 bytes (https://cs162.org/static/proj/pintos-docs/docs/userprog/program-startup/)
-  // if_->esp = (void*)(((uintptr_t)if_->esp) & ~0xF);
-  // if_->esp = if_->esp - 4;
-  // memcpy(if_->esp, argAddress[argc],4);
-  // if_->esp = NULL;
   //Then, push argv (the address of argv[0]) and argc, in that order. Finally, push a fake “return address”;
 
   /* Push the arguments onto the stack. */
   for (int i = argc - 1; i >= 0; i--) {
-    if_->esp = if_->esp - sizeof(char*); //esp = esp - sizeof(char pointer) (pushing the address)
-    // memcpy(if_->esp, argAddress[i], strlen(argAddress[i]));
+    if_->esp = if_->esp - sizeof(char*);
     *(char**)(if_->esp) = argAddress[i];
   }
   // Push argv[0]
@@ -126,12 +122,11 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
 
   // Push argc
   if_->esp = if_->esp - 4;
-  // memcpy(if_->esp, argc,4);
   *((size_t*)if_->esp) = argc;
 
   //Push rip
   if_->esp = if_->esp - 4;
-  // memcpy(if_->esp, 0,4);
+
   *((size_t*)if_->esp) = 0;
 }
 
@@ -155,14 +150,27 @@ pid_t process_execute(const char* file_name) {
 
   input->parent = thread_current()->pcb;
   input->file_name = fn_copy;
+  input->success = false;
+
+  /* Save FPU of current thread. */
+
+  /* If the file name is empty, exit process */
+  if (strlen(file_name) == 0) {
+    return TID_ERROR;
+  }
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, input);
-  sema_down(&thread_current()->pcb->sema);
+  sema_down(&thread_current()->pcb->sema_exec);
   if (tid == TID_ERROR) {
     palloc_free_page(fn_copy);
-    // return TID_ERROR;
-    free(&tid);
+  }
+
+  if (!input->success) {
+    return TID_ERROR;
+  }
+  if (input->success) {
+    free(input);
   }
   return tid;
 }
@@ -191,30 +199,35 @@ static void start_process(void* i) {
 
     /* Initialize PCB's semaphore*/
     struct semaphore my_semaphore;
-    t->pcb->sema = my_semaphore;
-    sema_init(&t->pcb->sema, 0);
+    t->pcb->sema_exec = my_semaphore;
+    sema_init(&t->pcb->sema_exec, 0);
+
+    /* Initialize PCB's wait semaphore*/
+    struct semaphore semaphore_wait;
+    t->pcb->sema_wait = semaphore_wait;
+    sema_init(&t->pcb->sema_wait, 0);
 
     /* Parent Process */
     t->pcb->parent = input->parent;
 
     /* Child Processes */
-    struct list c;
-    t->pcb->children = c;
     list_init(&t->pcb->children);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
 
-    /* File Descriptor Table */
-    // struct fileDescriptor_list* f = malloc(sizeof(struct fileDescriptor_list))
-    // struct list fdt;
-    // t->pcb->fileDescriptorTable = f;
-    // t->pcb->fileDescriptorTable->lst = fdt;
+    /* PID of process */
+    t->pcb->pid = t->tid;
 
-    // list_init(&t->pcb->fileDescriptorTable);
+    t->pcb->exit_code = -1;
+    /* File Descriptor Table */
+    struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
+    init_file_descriptor_list(fdt);
+
+    t->pcb->fileDescriptorTable = fdt;
   }
 
-  char* programcopy = input->file_name;
+  char* programcopy = file_name;
   char* tokens;
   size_t argc = 0;
   char* argv[64];
@@ -226,7 +239,6 @@ static void start_process(void* i) {
   argv[argc] = NULL;
   //change the process name
   strlcpy(new_pcb->process_name, argv[0], strlen(argv[0]) + 1);
-  // free(programcopy);
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -234,8 +246,32 @@ static void start_process(void* i) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
+    input->success = success;
+
+    /* Save kernel FPU. Init new FPU, Save.*/
+    char fpu_buf[108];
+    asm("fsave (%0); finit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&if_.fpu), "g"(&fpu_buf));
     //UP semaphore when process loaded
-    sema_up(&new_pcb->parent->sema);
+    if (success) {
+      //add child to parent child list;
+      struct child_list_elem* child = malloc(sizeof(struct child_list_elem));
+      memset(child, 0, sizeof(struct child_list_elem));
+
+      child->pid = t->tid;
+      child->exited = false;
+      child->exit_code = -1;
+      struct list_elem list = {NULL, NULL};
+      child->elem = list;
+      child->proc = new_pcb;
+      list_push_back(&input->parent->children, &child->elem);
+    }
+    sema_up(&new_pcb->parent->sema_exec);
+    if (!success) {
+      if_.eax = -1;
+      free(i);
+      thread_exit();
+    }
+
     push_to_stack(argc, argv, &if_);
   }
 
@@ -247,18 +283,15 @@ static void start_process(void* i) {
     struct process* pcb_to_free = t->pcb;
     t->pcb = NULL;
     free(pcb_to_free);
-    free(input);
   }
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
   if (!success) {
     sema_up(&temporary);
+    free(i);
     thread_exit();
   }
-  //t->pcb->success = true;
-  //up Semaphore
-  //sema_up(&t->pcb->parent->sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -267,13 +300,6 @@ static void start_process(void* i) {
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
 
-  /* Free the stack. */
-  // int x = 0;
-  // while (argv[x]!= NULL) {
-  //   free(argv[x]);
-  // }
-  //temp fix
-  // if_.esp = (void*)0xBFFFFFEC;
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
 }
@@ -287,32 +313,52 @@ static void start_process(void* i) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid) {
+int process_wait(pid_t child_pid UNUSED) {
+  // sema_down(&temporary);
+
   struct list children = thread_current()->pcb->children;
+  int exit_code = -1;
   bool foundChild = false;
   if (list_empty(&children)) {
     return -1;
   }
-  struct list_elem* element = list_begin(&children);
-  while (element != NULL && element != list_tail(&children)) {
-    struct child_elem* c = list_entry(element, struct child_elem, elem);
-    struct process* entry = c->process;
-    pid_t entry_pid = entry->pid;
+  /* Iterate through a process's children to down */
+  struct list_elem* element;
+  for (element = list_begin(&children); element != list_end(&children);
+       element = list_next(element)) {
+    struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+    pid_t entry_pid = c->pid;
+
+    /* Finds child no matter if the child has exited or not */
     if (entry_pid == child_pid) {
       foundChild = true;
-      if (!entry->waited) {
-        entry->waited = true;
-        sema_down(&entry->sema);
-      } else {
+      /* Child has not been waited and hasn't exited */
+      if (!c->waited && !c->exited) {
+        c->waited = true;
+        c->proc->waited = true;
+        exit_code = c->exit_code;
+        // Down
+        sema_down(&c->proc->sema_wait);
+        exit_code = c->exit_code;
+        break;
+      }
+      // /* Child has not been waited and has exited */
+      else if (!c->waited && c->exited) {
+        c->waited = true;
+        return c->exit_code;
+      } else if (c->waited) {
         return -1;
       }
     }
+    if (element->next == NULL) {
+      break;
+    }
   }
+
   if (!foundChild) {
     return -1;
   }
-
-  return 0;
+  return exit_code;
 }
 
 /* Free the current process's resources. */
@@ -320,10 +366,39 @@ void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
+  /* Close file if it exists */
+  if (cur->pcb->f != NULL) {
+    file_close(cur->pcb->f);
+  }
+
   /* If this thread does not have a PCB, don't worry */
   if (cur->pcb == NULL) {
     thread_exit();
     NOT_REACHED();
+  }
+
+  struct process* parent = cur->pcb->parent;
+
+  if (parent != NULL) {
+    struct list children = parent->children;
+    struct list_elem* element;
+
+    for (element = list_begin(&children); element != list_end(&children);
+         element = list_next(element)) {
+      struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+      pid_t entry_pid = c->pid;
+      if (cur->pcb->pid == entry_pid) {
+        /* Set child element struct's exit code and status */
+        c->exited = true;
+        c->exit_code = cur->pcb->exit_code;
+        break;
+      }
+    }
+  }
+
+  /* Up parent semaphore if is being waited upon */
+  if (cur->pcb->waited) {
+    sema_up(&cur->pcb->sema_wait);
   }
 
   /* Destroy the current process's page directory and switch back
@@ -342,6 +417,22 @@ void process_exit(void) {
     pagedir_destroy(pd);
   }
 
+  /* Freeing the File Descriptors and File Descriptor List */
+  /* Also closes all the files in FD List*/
+  struct fileDescriptor_list* fdt = cur->pcb->fileDescriptorTable;
+  lock_acquire(&fdt->lock);
+  struct list_elem* el;
+  struct list_elem* next_el;
+  for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = next_el) {
+    next_el = list_next(el);
+    struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
+    file_close(fileDescriptor_entry->file);
+    list_remove(el);
+    free(fileDescriptor_entry);
+  }
+  lock_release(&fdt->lock);
+  free(cur->pcb->fileDescriptorTable);
+
   /* Free the PCB of this process and kill this thread
      Avoid race where PCB is freed before t->pcb is set to NULL
      If this happens, then an unfortuantely timed timer interrupt
@@ -350,7 +441,6 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  sema_up(&temporary);
   thread_exit();
 }
 
@@ -456,10 +546,12 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
   /* Open executable file. */
   file = filesys_open(file_name);
+  t->pcb->f = file;
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;
   }
+  file_deny_write(file);
 
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
@@ -530,7 +622,8 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+  // file_allow_write(file);
+  //file_close(file);
   return success;
 }
 
@@ -686,6 +779,13 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    function signature. */
 bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
 
+/* A thread function that creates a new user thread and starts it
+   running. Responsible for adding itself to the list of threads in
+   the PCB.
+   This function will be implemented in Project 2: Multithreading and
+   should be similar to start_process (). For now, it does nothing. */
+static void start_pthread(void* exec_ UNUSED) {}
+
 /* Starts a new thread with a new user stack running SF, which takes
    TF and ARG as arguments on its user stack. This new thread may be
    scheduled (and may even exit) before pthread_execute () returns.
@@ -697,40 +797,24 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; 
    */
 tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
 
-/* A thread function that creates a new user thread and starts it
-   running. Responsible for adding itself to the list of threads in
-   the PCB.
-
-   This function will be implemented in Project 2: Multithreading and
-   should be similar to start_process (). For now, it does nothing. */
-// static void start_pthread(void* exec_ UNUSED) {}
-
-/* Waits for thread with TID to die, if that thread was spawned
-   in the same process and has not been waited on yet. Returns TID on
-   success and returns TID_ERROR on failure immediately, without
-   waiting.
-
-   This function will be implemented in Project 2: Multithreading. For
-   now, it does nothing. */
-tid_t pthread_join(tid_t tid UNUSED) { return -1; }
-
-/* Free the current thread's resources. Most resources will
-   be freed on thread_exit(), so all we have to do is deallocate the
-   thread's userspace stack. Wake any waiters on this thread.
-
-   The main thread should not use this function. See
-   pthread_exit_main() below.
-
-   This function will be implemented in Project 2: Multithreading. For
-   now, it does nothing. */
-void pthread_exit(void) {}
-
-/* Only to be used when the main thread explicitly calls pthread_exit.
-   The main thread should wait on all threads in the process to
-   terminate properly, before exiting itself. When it exits itself, it
-   must terminate the process in addition to all necessary duties in
-   pthread_exit.
-
-   This function will be implemented in Project 2: Multithreading. For
-   now, it does nothing. */
-void pthread_exit_main(void) {}
+bool validate_pointer(void* ptr) {
+  //need to validate pointer to read/write is also valid
+  //check if ptr is null
+  if (ptr == NULL) {
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    return false;
+  }
+  //check if ptr is in kernal space
+  if (is_kernel_vaddr(ptr)) {
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    return false;
+  }
+  //check if ptr is unmapped virtual memory
+  uint32_t* pd = active_pd();
+  void* dog = pagedir_get_page(pd, ptr);
+  if (dog == NULL) {
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    return false;
+  }
+  return true;
+}
