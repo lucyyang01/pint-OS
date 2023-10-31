@@ -259,7 +259,9 @@ static void thread_enqueue(struct thread* t) {
     pq_el->priority = t->effective;
 
     // Insert element into priority queue ordered using our priority comparer.
+    lock_acquire(&priority_queue.pq_lock);
     list_insert_ordered(&priority_queue.queue, &pq_el->elem, greater_list, greater_prio);
+    lock_release(&priority_queue.pq_lock);
   } else
     PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
 }
