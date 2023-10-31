@@ -137,6 +137,7 @@ extern enum sched_policy active_sched_policy;
 struct pq_elem {
   struct thread* t;
   int priority;
+  struct list_elem elem;
 };
 
 /* The Priority Queue. Contains a list of pq_elem and a lock. */
