@@ -484,7 +484,12 @@ static struct thread* thread_schedule_fifo(void) {
 
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  //PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  if (!list_empty(&priority_queue.queue)) {
+    struct pq_elem* pq_e = list_entry(list_pop_front(&priority_queue.queue), struct pq_elem, elem);
+    return pq_e->t;
+  } else
+    return idle_thread;
 }
 
 /* Fair priority scheduler */
