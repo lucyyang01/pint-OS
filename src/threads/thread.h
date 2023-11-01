@@ -159,4 +159,10 @@ void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
 
+bool wait_less(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED);
+
+void add_sleepy(struct thread* t);
+void remove_sleepy(struct thread* t);
+struct list* get_sleepy(void);
+
 #endif /* threads/thread.h */
