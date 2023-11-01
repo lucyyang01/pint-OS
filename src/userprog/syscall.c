@@ -159,6 +159,12 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_COMPUTE_E) {
     f->eax = compute_e(args[1]);
   }
+  if (args[0] == SYS_PT_CREATE) {
+    f->eax = pthread_execute(args[1], args[2], args[3]);
+  }
+  if (args[0] == SYS_PT_JOIN) {
+    f->eax = pthread_join(args[1]);
+  }
 }
 
 double compute_e(int n) { return (double)sys_sum_to_e(n); }

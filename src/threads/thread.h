@@ -102,6 +102,7 @@ struct thread {
 
   /* sychronization variable */
   struct lock lock;
+  struct semaphore thread_sema_exec;
 
 #ifdef USERPROG
   /* Owned by process.c. */
@@ -110,6 +111,13 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+};
+
+struct user_thread_input {
+  struct stub_fun* stub;
+  struct pthread_fun* function;
+  void* args;
+  struct process* pcb; //original pcb that we need to add new threaad to
 };
 
 /* Types of scheduler that the user can request the kernel

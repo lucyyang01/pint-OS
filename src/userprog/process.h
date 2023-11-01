@@ -38,6 +38,12 @@ struct process {
   pid_t pid;
   bool waited;
   struct file* f;
+  struct list user_thread_list;
+};
+
+struct user_thread_list_elem {
+  struct thread* t;
+  struct list_elem elem;
 };
 
 /*children list elmenent*/
@@ -79,6 +85,8 @@ struct process_input {
   bool success;
 };
 
+tid_t pthread_execute(stub_fun, pthread_fun, void*);
+tid_t pthread_join(tid_t);
 void pthread_exit(void);
 void pthread_exit_main(void);
 bool validate_pointer(void* ptr);
