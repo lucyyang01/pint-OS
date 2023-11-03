@@ -793,9 +793,9 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) {
     int numPages = 0;
     while (!success) {
       numPages = numPages + 1;
-      success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * numPages, kpage, true);
+      success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
     }
-    *esp = PHYS_BASE - PGSIZE * (numPages + 1);
+    *esp = PHYS_BASE - (PGSIZE * (numPages + 1));
   }
   return success;
 }
@@ -812,6 +812,7 @@ static void start_pthread(void* exec_ UNUSED) {
 
   struct user_thread_input* input = (struct user_thread_input*)exec_;
   t->pcb = input->pcb;
+  process_activate();
   struct intr_frame if_;
   bool success;
   memset(&if_, 0, sizeof if_);
@@ -819,6 +820,7 @@ static void start_pthread(void* exec_ UNUSED) {
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   if_.eip = (void (*)(void))input->stub;
+
   success = setup_thread(&if_.eip, &if_.esp);
 
   //Add itself to list of threads in pcb
