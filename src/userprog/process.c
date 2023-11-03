@@ -790,11 +790,12 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) {
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     // use for loop to iterate through user_thread_list from pcb
-    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * 100, kpage, true);
-    if (success)
-      *esp = PHYS_BASE;
-    else
-      palloc_free_page(kpage);
+    int numPages = 1;
+    while (!success) {
+      success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * numPages, kpage, true);
+      numPages = numPages + 1;
+    }
+    *esp = PHYS_BASE - PGSIZE * (numPages + 1);
   }
   return success;
 }
@@ -817,7 +818,7 @@ static void start_pthread(void* exec_ UNUSED) {
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  if_.eip = input->stub;
+  if_.eip = (void (*)(void))input->stub;
   success = setup_thread(&if_.eip, &if_.esp);
 
   //Add itself to list of threads in pcb
@@ -828,6 +829,10 @@ static void start_pthread(void* exec_ UNUSED) {
   thread_elem->elem = lst;
 
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
+
+  // push_to_stack(argc, argv, &if_);
+
+  sema_up(&thread_current()->thread_sema_exec);
 
   /* Setup the stack */
   /* align esp to 16 byte boundary */
@@ -843,15 +848,12 @@ static void start_pthread(void* exec_ UNUSED) {
   }
 
   if_.esp = if_.esp - 4;
-  memcpy(if_.esp, input->function, 4);
+  memcpy(if_.esp, &input->stub, 4);
   // *(if_.esp) = input->function;
 
   /* Push the rip*/
   if_.esp = if_.esp - 4;
 
-  // push_to_stack(argc, argv, &if_);
-
-  sema_up(&thread_current()->thread_sema_exec);
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
 }
@@ -869,7 +871,7 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
   struct user_thread_input* input = malloc(sizeof(struct user_thread_input));
   input->function = tf;
   input->args = arg;
-  input->stub = &sf;
+  input->stub = sf;
   input->pcb = thread_current()->pcb;
   tid_t tid = thread_create("user", PRI_DEFAULT, start_pthread, input);
   // start_pthread(input);
