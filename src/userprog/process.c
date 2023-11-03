@@ -790,10 +790,10 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) {
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     // use for loop to iterate through user_thread_list from pcb
-    int numPages = 1;
+    int numPages = 0;
     while (!success) {
-      success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * numPages, kpage, true);
       numPages = numPages + 1;
+      success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * numPages, kpage, true);
     }
     *esp = PHYS_BASE - PGSIZE * (numPages + 1);
   }
