@@ -831,15 +831,24 @@ static void start_pthread(void* exec_ UNUSED) {
   // void (*stub)(pthread_fun, void*) = input->stub;
   // stub(&input->function, &input->args);
 
-  size_t argc = 2;
-  char* argv = malloc(10);
-  memcpy(argv[1], input->function, 5);
-  memcpy(argv[0], input->args, 5);
-  argv[2] = NULL;
-  push_to_stack(argc, argv, &if_);
+  /* align esp to 16 byte boundary */
+  if_.esp = if_.esp - ((int)if_.esp % 16);
+
+  /* first push 8 bytes of memory to maintain stack alignment */
+  if_.esp = if_.esp - 8;
+
+  /* Push tfun and arg onto the stack. */
+  if_.esp = if_.esp - 4;
+  memcpy(if_.esp, input->args, 4);
+  if_.esp = if_.esp - 4;
+  memcpy(if_.esp, input->function, 4);
+
+  /* Push the rip*/
+  if_.esp = if_.esp - 4;
+
+  // push_to_stack(argc, argv, &if_);
 
   sema_up(&thread_current()->thread_sema_exec);
-  // push_to_stack
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
 }
