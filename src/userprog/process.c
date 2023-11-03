@@ -787,10 +787,10 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) {
   bool success = false;
 
   // TODO Keep track of how many pages have been installed
-  kpage = palloc_get_page(PAL_USER);
-  if (kpage == NULL) {
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  if (kpage != NULL) {
     // use for loop to iterate through user_thread_list from pcb
-    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
+    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE * 100, kpage, true);
     if (success)
       *esp = PHYS_BASE;
     else
@@ -808,16 +808,19 @@ static void start_pthread(void* exec_ UNUSED) {
   //create the new user thread
   //set interrupt
   struct thread* t = thread_current();
+
   struct user_thread_input* input = (struct user_thread_input*)exec_;
+  t->pcb = input->pcb;
   struct intr_frame if_;
   bool success;
   memset(&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  if_.eip = &input->stub;
+  if_.eip = input->stub;
   success = setup_thread(&if_.eip, &if_.esp);
-  //add itself to list of threads in pcb
+
+  //Add itself to list of threads in pcb
 
   struct user_thread_list_elem* thread_elem = malloc(sizeof(struct user_thread_list_elem));
   struct list_elem lst = {NULL, NULL};
@@ -825,12 +828,8 @@ static void start_pthread(void* exec_ UNUSED) {
   thread_elem->elem = lst;
 
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
-  //Start the function and exit
-  // _pthread_start_stub(&input->function);
-  // struct stub_fun* stub = input->stub;
-  // void (*stub)(pthread_fun, void*) = input->stub;
-  // stub(&input->function, &input->args);
 
+  /* Setup the stack */
   /* align esp to 16 byte boundary */
   if_.esp = if_.esp - ((int)if_.esp % 16);
 
@@ -844,7 +843,8 @@ static void start_pthread(void* exec_ UNUSED) {
   }
 
   if_.esp = if_.esp - 4;
-  memcpy(if_.esp, &input->function, 4);
+  memcpy(if_.esp, input->function, 4);
+  // *(if_.esp) = input->function;
 
   /* Push the rip*/
   if_.esp = if_.esp - 4;
