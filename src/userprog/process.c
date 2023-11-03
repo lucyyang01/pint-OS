@@ -839,9 +839,12 @@ static void start_pthread(void* exec_ UNUSED) {
 
   /* Push tfun and arg onto the stack. */
   if_.esp = if_.esp - 4;
-  memcpy(if_.esp, input->args, 4);
+  if (input->args != NULL) {
+    memcpy(if_.esp, &input->args, 4);
+  }
+
   if_.esp = if_.esp - 4;
-  memcpy(if_.esp, input->function, 4);
+  memcpy(if_.esp, &input->function, 4);
 
   /* Push the rip*/
   if_.esp = if_.esp - 4;
@@ -864,7 +867,7 @@ static void start_pthread(void* exec_ UNUSED) {
    */
 tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) {
   struct user_thread_input* input = malloc(sizeof(struct user_thread_input));
-  input->function = &tf;
+  input->function = tf;
   input->args = arg;
   input->stub = &sf;
   input->pcb = thread_current()->pcb;
