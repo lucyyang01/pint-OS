@@ -62,6 +62,7 @@ struct child_list_elem {
   bool waited;
   bool exited;
   struct process* proc;
+  struct lock watson;
 };
 
 struct fileDescriptor_list {
