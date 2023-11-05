@@ -20,13 +20,15 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+// #include "lib/user/pthread.h"
+
 char* strdup(const char* str);
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 
 static bool load(const char* file_name, void (**eip)(void), void** esp);
-bool setup_thread(void (**eip)(void), void** esp);
+bool setup_thread(void (**eip)(void), void** esp, struct user_thread_input* input);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
 void init_file_descriptor_list(struct fileDescriptor_list* fdt);
 
@@ -69,6 +71,7 @@ void userprog_init(void) {
   /* Child Processes */
 
   list_init(&t->pcb->children);
+  list_init(&t->pcb->user_thread_list);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
@@ -212,6 +215,7 @@ static void start_process(void* i) {
 
     /* Child Processes */
     list_init(&t->pcb->children);
+    list_init(&t->pcb->user_thread_list);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
@@ -255,6 +259,7 @@ static void start_process(void* i) {
     if (success) {
       //add child to parent child list;
       struct child_list_elem* child = malloc(sizeof(struct child_list_elem));
+
       memset(child, 0, sizeof(struct child_list_elem));
 
       child->pid = t->tid;
@@ -777,14 +782,87 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. You may find it necessary to change the
    function signature. */
-bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
+bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thread_input* input) {
+  uint8_t* kpage;
+  bool success = false;
+  struct thread* t = thread_current();
+
+  // TODO Keep track of how many pages have been installed
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  if (kpage != NULL) {
+    // use for loop to iterate through user_thread_list from pcb
+    int numPages = 0;
+    while (!success) {
+      numPages = numPages + 1;
+      success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
+    }
+    *esp = (uint8_t*)PHYS_BASE - (PGSIZE * (numPages - 1));
+    t->page = ((uint8_t*)PHYS_BASE) - (PGSIZE * numPages);
+  }
+
+  /* Setup the stack */
+  /* align esp to 16 byte boundary */
+  *esp = *esp - ((int)*esp % 16);
+
+  /* first push 8 bytes of memory to maintain stack alignment */
+  *esp = *esp - 8;
+
+  /* Push tfun and arg onto the stack. */
+  *esp = *esp - 4;
+  memcpy(*esp, &input->args, 4);
+
+  *esp = *esp - 4;
+  memcpy(*esp, &input->function, 4);
+  // *(if_.esp) = input->function;
+
+  /* Push the rip*/
+  *esp = *esp - 4;
+  return success;
+}
 
 /* A thread function that creates a new user thread and starts it
    running. Responsible for adding itself to the list of threads in
    the PCB.
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
-static void start_pthread(void* exec_ UNUSED) {}
+static void start_pthread(void* exec_ UNUSED) {
+  //create the new user thread
+  //set interrupt
+  struct thread* t = thread_current();
+
+  struct user_thread_input* input = (struct user_thread_input*)exec_;
+  t->pcb = input->pcb;
+  // t->pcb->pagedir = pagedir_create();
+  process_activate();
+  struct intr_frame if_;
+  bool success;
+  memset(&if_, 0, sizeof if_);
+  if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+  if_.cs = SEL_UCSEG;
+  if_.eflags = FLAG_IF | FLAG_MBS;
+  if_.eip = (void (*)(void))input->stub;
+
+  success = setup_thread(&if_.eip, &if_.esp, input);
+
+  //Add itself to list of threads in pcb
+
+  struct user_thread_list_elem* thread_elem = malloc(sizeof(struct user_thread_list_elem));
+  struct list_elem lst = {NULL, NULL};
+  thread_elem->t = t;
+  thread_elem->elem = lst;
+  thread_elem->joined = false;
+  thread_elem->joiner = NULL;
+  thread_elem->exited = false;
+
+  list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
+
+  // push_to_stack(argc, argv, &if_);
+
+  sema_up(&input->thread_sema_exec);
+
+  asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
+  NOT_REACHED();
+}
 
 /* Starts a new thread with a new user stack running SF, which takes
    TF and ARG as arguments on its user stack. This new thread may be
@@ -795,7 +873,115 @@ static void start_pthread(void* exec_ UNUSED) {}
    This function will be implemented in Project 2: Multithreading and
    should be similar to process_execute (). For now, it does nothing.
    */
-tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
+tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) {
+  struct user_thread_input* input = malloc(sizeof(struct user_thread_input));
+  input->function = tf;
+  input->args = arg;
+  input->stub = sf;
+  input->pcb = thread_current()->pcb;
+
+  struct semaphore semaphore_exec;
+  input->thread_sema_exec = semaphore_exec;
+  sema_init(&input->thread_sema_exec, 0);
+  tid_t tid = thread_create("user", PRI_DEFAULT, start_pthread, input);
+  // start_pthread(input);
+  //down semaphore to make sure thread succeeds in being created
+  // sema_down(&thread_current()->thread_sema_exec);
+  sema_down(&input->thread_sema_exec);
+
+  return tid;
+}
+
+/* Waits for thread with TID to die, if that thread was spawned
+   in the same process and has not been waited on yet. Returns TID on
+   success and returns TID_ERROR on failure immediately, without
+   waiting.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. */
+tid_t pthread_join(tid_t tid UNUSED) {
+  /* Obtain the thread we want to join on and set joiner elemnt*/
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->t->tid == tid) {
+      if (u->joined) {
+        return TID_ERROR;
+      } else if (!u->exited) {
+        intr_disable();
+        u->joiner = thread_current();
+        u->joined = true;
+        thread_block();
+        intr_enable();
+        return tid;
+      } else {
+        return tid;
+      }
+    }
+    if (element->next == NULL) {
+      break;
+    }
+  }
+}
+
+/* Free the current thread's resources. Most resources will
+   be freed on thread_exit(), so all we have to do is deallocate the
+   thread's userspace stack. Wake any waiters on this thread.
+
+   The main thread should not use this function. See
+   pthread_exit_main() below.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. */
+void pthread_exit(void) {
+  struct thread* t = thread_current();
+  if (t->pcb->main_thread == t) {
+    pthread_exit_main();
+  }
+  palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
+  pagedir_clear_page(t->pcb->pagedir, t->page);
+
+  /* Let waiter go! */
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->t == t) {
+      if (u->joined) {
+        thread_unblock(u->joiner);
+      }
+      u->exited = true;
+      break;
+    }
+
+    if (element->next == NULL) {
+      break;
+    }
+  }
+  thread_exit();
+}
+
+/* Only to be used when the main thread explicitly calls pthread_exit.
+   The main thread should wait on all threads in the process to
+   terminate properly, before exiting itself. When it exits itself, it
+   must terminate the process in addition to all necessary duties in
+   pthread_exit.
+
+   This function will be implemented in Project 2: Multithreading. For
+   now, it does nothing. */
+void pthread_exit_main(void) {
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->t != thread_current()) {
+      pthread_join(u->t);
+    }
+  }
+  thread_exit();
+  process_exit();
+}
 
 bool validate_pointer(void* ptr) {
   //need to validate pointer to read/write is also valid
