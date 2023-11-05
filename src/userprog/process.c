@@ -955,13 +955,13 @@ void pthread_exit(void) {
   if (t->pcb->main_thread == t) {
     pthread_exit_main();
   }
+  lock_acquire(&thread_current()->pcb->sherlock);
   palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
   pagedir_clear_page(t->pcb->pagedir, t->page);
 
   /* Let waiter go! */
   struct list_elem* element;
   struct list lst = thread_current()->pcb->user_thread_list;
-  lock_acquire(&thread_current()->pcb->sherlock);
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
     if (u->tid == t->tid) {
