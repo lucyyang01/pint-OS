@@ -909,9 +909,13 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
    now, it does nothing. */
 tid_t pthread_join(tid_t tid UNUSED) {
   /* Obtain the thread we want to join on and set joiner elemnt*/
+  // if(tid == thread_current()->tid){
+  //     return TID_ERROR;
+  // }
   struct list_elem* element;
   lock_acquire(&thread_current()->pcb->sherlock);
   struct list lst = thread_current()->pcb->user_thread_list;
+  lock_acquire(&thread_current()->pcb->sherlock);
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
     if (u->tid == tid) {
@@ -919,9 +923,10 @@ tid_t pthread_join(tid_t tid UNUSED) {
         lock_release(&thread_current()->pcb->sherlock);
         return TID_ERROR;
       } else if (!u->exited) {
-        intr_disable();
         u->joiner = thread_current();
         u->joined = true;
+        lock_release(&thread_current()->pcb->sherlock);
+        intr_disable();
         thread_block();
         intr_enable();
         lock_release(&thread_current()->pcb->sherlock);
@@ -935,7 +940,7 @@ tid_t pthread_join(tid_t tid UNUSED) {
       break;
     }
   }
-  // lock_release(&thread_current()->pcb->sherlock);
+  lock_release(&thread_current()->pcb->sherlock);
   return TID_ERROR;
 }
 
@@ -963,6 +968,7 @@ void pthread_exit(void) {
   /* Let waiter go! */
   struct list_elem* element;
   struct list lst = thread_current()->pcb->user_thread_list;
+  lock_acquire(&thread_current()->pcb->sherlock);
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
     if (u->tid == t->tid) {
@@ -977,6 +983,7 @@ void pthread_exit(void) {
       break;
     }
   }
+
   lock_release(&t->pcb->sherlock);
   thread_exit();
 }
