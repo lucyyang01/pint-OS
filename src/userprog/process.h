@@ -33,6 +33,7 @@ struct process {
   struct semaphore sema_exec;
   struct semaphore sema_wait;
   struct lock sherlock;
+  struct lock authorlock;
 
   struct process* parent;
   struct list children;
