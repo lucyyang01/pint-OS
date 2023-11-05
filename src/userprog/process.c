@@ -809,9 +809,7 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
 
   /* Push tfun and arg onto the stack. */
   *esp = *esp - 4;
-  if (input->args != NULL) {
-    memcpy(*esp, &input->args, 4);
-  }
+  memcpy(*esp, &input->args, 4);
 
   *esp = *esp - 4;
   memcpy(*esp, &input->function, 4);
@@ -852,12 +850,15 @@ static void start_pthread(void* exec_ UNUSED) {
   struct list_elem lst = {NULL, NULL};
   thread_elem->t = t;
   thread_elem->elem = lst;
+  thread_elem->joined = false;
+  thread_elem->joiner = NULL;
+  thread_elem->exited = false;
 
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
 
   // push_to_stack(argc, argv, &if_);
 
-  sema_up(&thread_current()->thread_sema_exec);
+  sema_up(&input->thread_sema_exec);
 
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
@@ -878,12 +879,15 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
   input->args = arg;
   input->stub = sf;
   input->pcb = thread_current()->pcb;
+
+  struct semaphore semaphore_exec;
+  input->thread_sema_exec = semaphore_exec;
+  sema_init(&input->thread_sema_exec, 0);
   tid_t tid = thread_create("user", PRI_DEFAULT, start_pthread, input);
   // start_pthread(input);
   //down semaphore to make sure thread succeeds in being created
-  if (tid > 0) {
-    sema_down(&thread_current()->thread_sema_exec);
-  }
+  // sema_down(&thread_current()->thread_sema_exec);
+  sema_down(&input->thread_sema_exec);
 
   return tid;
 }
@@ -895,7 +899,31 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-tid_t pthread_join(tid_t tid UNUSED) { return -1; }
+tid_t pthread_join(tid_t tid UNUSED) {
+  /* Obtain the thread we want to join on and set joiner elemnt*/
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->t->tid == tid) {
+      if (u->joined) {
+        return TID_ERROR;
+      } else if (!u->exited) {
+        intr_disable();
+        u->joiner = thread_current();
+        u->joined = true;
+        thread_block();
+        intr_enable();
+        return tid;
+      } else {
+        return tid;
+      }
+    }
+    if (element->next == NULL) {
+      break;
+    }
+  }
+}
 
 /* Free the current thread's resources. Most resources will
    be freed on thread_exit(), so all we have to do is deallocate the
@@ -908,9 +936,29 @@ tid_t pthread_join(tid_t tid UNUSED) { return -1; }
    now, it does nothing. */
 void pthread_exit(void) {
   struct thread* t = thread_current();
-  palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
-  pagedir_clear_page(t->pcb->pagedir, t->page);
+  if (t->pcb->main_thread == t) {
+    pthread_exit_main();
+  }
+  palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page - PGSIZE));
+  pagedir_clear_page(t->pcb->pagedir, t->page - PGSIZE);
 
+  /* Let waiter go! */
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->t == t) {
+      if (u->joined) {
+        thread_unblock(u->joiner);
+      }
+      u->exited = true;
+      break;
+    }
+
+    if (element->next == NULL) {
+      break;
+    }
+  }
   thread_exit();
 }
 
@@ -922,7 +970,18 @@ void pthread_exit(void) {
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit_main(void) {}
+void pthread_exit_main(void) {
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->t != thread_current()) {
+      pthread_join(u->t);
+    }
+  }
+  thread_exit();
+  process_exit();
+}
 
 bool validate_pointer(void* ptr) {
   //need to validate pointer to read/write is also valid

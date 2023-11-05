@@ -102,8 +102,8 @@ struct thread {
 
   /* sychronization variable */
   struct lock lock;
-  struct semaphore thread_sema_exec;
-  struct semaphore thread_sema_join;
+
+  // struct semaphore thread_sema_join;
 
 #ifdef USERPROG
   /* Owned by process.c. */
@@ -120,6 +120,7 @@ struct user_thread_input {
   struct pthread_fun* function;
   void* args;
   struct process* pcb; //original pcb that we need to add new threaad to
+  struct semaphore thread_sema_exec;
 };
 
 /* Types of scheduler that the user can request the kernel

@@ -44,8 +44,10 @@ struct process {
 struct user_thread_list_elem {
   struct thread* t;
   bool joined;
+  bool exited;
   struct semaphore sema_join;
   struct list_elem elem;
+  struct thread* joiner /* NULL if never joined on ELSE equal to joinee */
 };
 
 /*children list elmenent*/
