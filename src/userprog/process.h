@@ -28,8 +28,12 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+
+  /* Synchronization variables */
   struct semaphore sema_exec;
   struct semaphore sema_wait;
+  struct lock sherlock;
+
   struct process* parent;
   struct list children;
   int ref_count;
@@ -42,7 +46,7 @@ struct process {
 };
 
 struct user_thread_list_elem {
-  struct thread* t;
+  tid_t tid;
   bool joined;
   bool exited;
   struct semaphore sema_join;

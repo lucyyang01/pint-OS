@@ -68,6 +68,9 @@ void userprog_init(void) {
   t->pcb->sema_wait = semaphore_wait;
   sema_init(&t->pcb->sema_wait, 0);
 
+  /* Initialize lock */
+  lock_init(&(t->pcb->sherlock));
+
   /* Child Processes */
 
   list_init(&t->pcb->children);
@@ -209,6 +212,9 @@ static void start_process(void* i) {
     struct semaphore semaphore_wait;
     t->pcb->sema_wait = semaphore_wait;
     sema_init(&t->pcb->sema_wait, 0);
+
+    /* Initialize lock */
+    lock_init(&(t->pcb->sherlock));
 
     /* Parent Process */
     t->pcb->parent = input->parent;
@@ -848,12 +854,11 @@ static void start_pthread(void* exec_ UNUSED) {
 
   struct user_thread_list_elem* thread_elem = malloc(sizeof(struct user_thread_list_elem));
   struct list_elem lst = {NULL, NULL};
-  thread_elem->t = t;
+  thread_elem->tid = t->tid;
   thread_elem->elem = lst;
   thread_elem->joined = false;
   thread_elem->joiner = NULL;
   thread_elem->exited = false;
-
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
 
   // push_to_stack(argc, argv, &if_);
@@ -880,13 +885,14 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
   input->stub = sf;
   input->pcb = thread_current()->pcb;
 
+  /* Initialize thread's semaphore */
   struct semaphore semaphore_exec;
   input->thread_sema_exec = semaphore_exec;
   sema_init(&input->thread_sema_exec, 0);
+
   tid_t tid = thread_create("user", PRI_DEFAULT, start_pthread, input);
-  // start_pthread(input);
-  //down semaphore to make sure thread succeeds in being created
-  // sema_down(&thread_current()->thread_sema_exec);
+
+  /* Down the thread's associated semaphore */
   sema_down(&input->thread_sema_exec);
 
   return tid;
@@ -905,7 +911,7 @@ tid_t pthread_join(tid_t tid UNUSED) {
   struct list lst = thread_current()->pcb->user_thread_list;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
-    if (u->t->tid == tid) {
+    if (u->tid == tid) {
       if (u->joined) {
         return TID_ERROR;
       } else if (!u->exited) {
@@ -923,6 +929,7 @@ tid_t pthread_join(tid_t tid UNUSED) {
       break;
     }
   }
+  return TID_ERROR;
 }
 
 /* Free the current thread's resources. Most resources will
@@ -947,7 +954,7 @@ void pthread_exit(void) {
   struct list lst = thread_current()->pcb->user_thread_list;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
-    if (u->t == t) {
+    if (u->tid == t->tid) {
       if (u->joined) {
         thread_unblock(u->joiner);
       }
@@ -975,8 +982,8 @@ void pthread_exit_main(void) {
   struct list lst = thread_current()->pcb->user_thread_list;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
-    if (u->t != thread_current()) {
-      pthread_join(u->t);
+    if (u->tid != thread_current()->tid) {
+      pthread_join(u->tid);
     }
   }
   thread_exit();
