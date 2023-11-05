@@ -103,6 +103,7 @@ struct thread {
   /* sychronization variable */
   struct lock lock;
   struct semaphore thread_sema_exec;
+  struct semaphore thread_sema_join;
 
 #ifdef USERPROG
   /* Owned by process.c. */
@@ -111,6 +112,7 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+  uint8_t* page;  /* top of stack address in page directory */
 };
 
 struct user_thread_input {

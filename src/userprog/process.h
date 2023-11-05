@@ -43,6 +43,8 @@ struct process {
 
 struct user_thread_list_elem {
   struct thread* t;
+  bool joined;
+  struct semaphore sema_join;
   struct list_elem elem;
 };
 

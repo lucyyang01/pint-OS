@@ -28,7 +28,7 @@ static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 
 static bool load(const char* file_name, void (**eip)(void), void** esp);
-bool setup_thread(void (**eip)(void), void** esp);
+bool setup_thread(void (**eip)(void), void** esp, struct user_thread_input* input);
 void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_);
 void init_file_descriptor_list(struct fileDescriptor_list* fdt);
 
@@ -782,9 +782,10 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. You may find it necessary to change the
    function signature. */
-bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) {
+bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thread_input* input) {
   uint8_t* kpage;
   bool success = false;
+  struct thread* t = thread_current();
 
   // TODO Keep track of how many pages have been installed
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
@@ -795,8 +796,29 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) {
       numPages = numPages + 1;
       success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
     }
-    *esp = PHYS_BASE - (PGSIZE * (numPages + 1));
+    *esp = (uint8_t*)PHYS_BASE - (PGSIZE * (numPages - 1));
+    t->page = *esp;
   }
+
+  /* Setup the stack */
+  /* align esp to 16 byte boundary */
+  *esp = *esp - ((int)*esp % 16);
+
+  /* first push 8 bytes of memory to maintain stack alignment */
+  *esp = *esp - 8;
+
+  /* Push tfun and arg onto the stack. */
+  *esp = *esp - 4;
+  if (input->args != NULL) {
+    memcpy(*esp, &input->args, 4);
+  }
+
+  *esp = *esp - 4;
+  memcpy(*esp, &input->function, 4);
+  // *(if_.esp) = input->function;
+
+  /* Push the rip*/
+  *esp = *esp - 4;
   return success;
 }
 
@@ -812,6 +834,7 @@ static void start_pthread(void* exec_ UNUSED) {
 
   struct user_thread_input* input = (struct user_thread_input*)exec_;
   t->pcb = input->pcb;
+  // t->pcb->pagedir = pagedir_create();
   process_activate();
   struct intr_frame if_;
   bool success;
@@ -821,7 +844,7 @@ static void start_pthread(void* exec_ UNUSED) {
   if_.eflags = FLAG_IF | FLAG_MBS;
   if_.eip = (void (*)(void))input->stub;
 
-  success = setup_thread(&if_.eip, &if_.esp);
+  success = setup_thread(&if_.eip, &if_.esp, input);
 
   //Add itself to list of threads in pcb
 
@@ -835,26 +858,6 @@ static void start_pthread(void* exec_ UNUSED) {
   // push_to_stack(argc, argv, &if_);
 
   sema_up(&thread_current()->thread_sema_exec);
-
-  /* Setup the stack */
-  /* align esp to 16 byte boundary */
-  if_.esp = if_.esp - ((int)if_.esp % 16);
-
-  /* first push 8 bytes of memory to maintain stack alignment */
-  if_.esp = if_.esp - 8;
-
-  /* Push tfun and arg onto the stack. */
-  if_.esp = if_.esp - 4;
-  if (input->args != NULL) {
-    memcpy(if_.esp, &input->args, 4);
-  }
-
-  if_.esp = if_.esp - 4;
-  memcpy(if_.esp, &input->stub, 4);
-  // *(if_.esp) = input->function;
-
-  /* Push the rip*/
-  if_.esp = if_.esp - 4;
 
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
   NOT_REACHED();
@@ -903,7 +906,13 @@ tid_t pthread_join(tid_t tid UNUSED) { return -1; }
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit(void) {}
+void pthread_exit(void) {
+  struct thread* t = thread_current();
+  palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
+  pagedir_clear_page(t->pcb->pagedir, t->page);
+
+  thread_exit();
+}
 
 /* Only to be used when the main thread explicitly calls pthread_exit.
    The main thread should wait on all threads in the process to
