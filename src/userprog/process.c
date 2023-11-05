@@ -70,6 +70,7 @@ void userprog_init(void) {
 
   /* Initialize lock */
   lock_init(&(t->pcb->sherlock));
+  lock_init(&(t->pcb->authorlock));
 
   /* Child Processes */
 
@@ -215,6 +216,7 @@ static void start_process(void* i) {
 
     /* Initialize lock */
     lock_init(&(t->pcb->sherlock));
+    lock_init(&(t->pcb->authorlock));
 
     /* Parent Process */
     t->pcb->parent = input->parent;
@@ -274,6 +276,7 @@ static void start_process(void* i) {
       struct list_elem list = {NULL, NULL};
       child->elem = list;
       child->proc = new_pcb;
+      lock_init(&child->watson);
       list_push_back(&input->parent->children, &child->elem);
     }
     sema_up(&new_pcb->parent->sema_exec);
@@ -325,8 +328,6 @@ static void start_process(void* i) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  // sema_down(&temporary);
-
   struct list children = thread_current()->pcb->children;
   int exit_code = -1;
   bool foundChild = false;
@@ -338,6 +339,7 @@ int process_wait(pid_t child_pid UNUSED) {
   for (element = list_begin(&children); element != list_end(&children);
        element = list_next(element)) {
     struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+    lock_acquire(&c->watson);
     pid_t entry_pid = c->pid;
 
     /* Finds child no matter if the child has exited or not */
@@ -351,19 +353,25 @@ int process_wait(pid_t child_pid UNUSED) {
         // Down
         sema_down(&c->proc->sema_wait);
         exit_code = c->exit_code;
+        lock_release(&c->watson);
         break;
       }
       // /* Child has not been waited and has exited */
       else if (!c->waited && c->exited) {
         c->waited = true;
-        return c->exit_code;
+        exit_code = c->exit_code;
+        lock_release(&c->watson);
+        return exit_code;
       } else if (c->waited) {
+        lock_release(&c->watson);
         return -1;
       }
     }
     if (element->next == NULL) {
+      lock_release(&c->watson);
       break;
     }
+    lock_release(&c->watson);
   }
 
   if (!foundChild) {
@@ -389,7 +397,7 @@ void process_exit(void) {
   }
 
   struct process* parent = cur->pcb->parent;
-
+  bool waiting = false;
   if (parent != NULL) {
     struct list children = parent->children;
     struct list_elem* element;
@@ -397,18 +405,22 @@ void process_exit(void) {
     for (element = list_begin(&children); element != list_end(&children);
          element = list_next(element)) {
       struct child_list_elem* c = list_entry(element, struct child_list_elem, elem);
+      lock_acquire(&c->watson);
       pid_t entry_pid = c->pid;
       if (cur->pcb->pid == entry_pid) {
         /* Set child element struct's exit code and status */
         c->exited = true;
         c->exit_code = cur->pcb->exit_code;
+        waiting = c->waited;
+        lock_release(&c->watson);
         break;
       }
+      lock_release(&c->watson);
     }
   }
 
   /* Up parent semaphore if is being waited upon */
-  if (cur->pcb->waited) {
+  if (waiting) {
     sema_up(&cur->pcb->sema_wait);
   }
 
