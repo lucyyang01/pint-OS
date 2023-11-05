@@ -838,7 +838,6 @@ static void start_pthread(void* exec_ UNUSED) {
 
   struct user_thread_input* input = (struct user_thread_input*)exec_;
   t->pcb = input->pcb;
-  // t->pcb->pagedir = pagedir_create();
   process_activate();
   struct intr_frame if_;
   bool success;
@@ -859,9 +858,11 @@ static void start_pthread(void* exec_ UNUSED) {
   thread_elem->joined = false;
   thread_elem->joiner = NULL;
   thread_elem->exited = false;
-  lock_acquire(&thread_current()->pcb->sherlock);
+
+  lock_acquire(&input->pcb->sherlock);
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
-  lock_release(&thread_current()->pcb->sherlock);
+  lock_release(&input->pcb->sherlock);
+
   // push_to_stack(argc, argv, &if_);
 
   sema_up(&input->thread_sema_exec);
@@ -912,6 +913,7 @@ tid_t pthread_join(tid_t tid UNUSED) {
   //     return TID_ERROR;
   // }
   struct list_elem* element;
+  lock_acquire(&thread_current()->pcb->sherlock);
   struct list lst = thread_current()->pcb->user_thread_list;
   lock_acquire(&thread_current()->pcb->sherlock);
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
@@ -927,6 +929,7 @@ tid_t pthread_join(tid_t tid UNUSED) {
         intr_disable();
         thread_block();
         intr_enable();
+        lock_release(&thread_current()->pcb->sherlock);
         return tid;
       } else {
         lock_release(&thread_current()->pcb->sherlock);
@@ -952,9 +955,13 @@ tid_t pthread_join(tid_t tid UNUSED) {
    now, it does nothing. */
 void pthread_exit(void) {
   struct thread* t = thread_current();
+  lock_acquire(&t->pcb->sherlock);
+
   if (t->pcb->main_thread == t) {
+    lock_release(&t->pcb->sherlock);
     pthread_exit_main();
   }
+
   palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
   pagedir_clear_page(t->pcb->pagedir, t->page);
 
@@ -976,7 +983,8 @@ void pthread_exit(void) {
       break;
     }
   }
-  lock_release(&thread_current()->pcb->sherlock);
+
+  lock_release(&t->pcb->sherlock);
   thread_exit();
 }
 
@@ -990,6 +998,7 @@ void pthread_exit(void) {
    now, it does nothing. */
 void pthread_exit_main(void) {
   struct list_elem* element;
+  lock_acquire(&thread_current()->pcb->sherlock);
   struct list lst = thread_current()->pcb->user_thread_list;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
@@ -998,6 +1007,7 @@ void pthread_exit_main(void) {
       pthread_join(u->tid);
     }
   }
+  lock_release(&thread_current()->pcb->sherlock);
   thread_exit();
   process_exit();
 }
