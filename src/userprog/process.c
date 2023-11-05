@@ -995,6 +995,7 @@ void pthread_exit_main(void) {
   struct list lst = thread_current()->pcb->user_thread_list;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    //join on unjoined threads
     if (u->tid != thread_current()->tid) {
       pthread_join(u->tid);
     }
