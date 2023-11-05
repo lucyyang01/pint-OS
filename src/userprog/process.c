@@ -797,7 +797,7 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
       success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
     }
     *esp = (uint8_t*)PHYS_BASE - (PGSIZE * (numPages - 1));
-    t->page = *esp;
+    t->page = ((uint8_t*)PHYS_BASE) - (PGSIZE * numPages);
   }
 
   /* Setup the stack */
@@ -939,8 +939,8 @@ void pthread_exit(void) {
   if (t->pcb->main_thread == t) {
     pthread_exit_main();
   }
-  palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page - PGSIZE));
-  pagedir_clear_page(t->pcb->pagedir, t->page - PGSIZE);
+  palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
+  pagedir_clear_page(t->pcb->pagedir, t->page);
 
   /* Let waiter go! */
   struct list_elem* element;
