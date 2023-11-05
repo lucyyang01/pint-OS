@@ -349,9 +349,10 @@ int process_wait(pid_t child_pid UNUSED) {
       if (!c->waited && !c->exited) {
         c->waited = true;
         c->proc->waited = true;
-        exit_code = c->exit_code;
         // Down
+        lock_release(&c->watson);
         sema_down(&c->proc->sema_wait);
+        lock_acquire(&c->watson);
         exit_code = c->exit_code;
         lock_release(&c->watson);
         break;
