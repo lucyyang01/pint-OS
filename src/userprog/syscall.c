@@ -126,13 +126,15 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
+    lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = open((char*)args[1]);
+    lock_release(&(thread_current()->pcb->authorlock));
     //create new file descriptor elem
   }
   if (args[0] == SYS_CLOSE) {
-    //lock_acquire(&(thread_current()->pcb->authorlock));
+    lock_acquire(&(thread_current()->pcb->authorlock));
     close(args[1]);
-    //lock_release(&(thread_current()->pcb->authorlock));
+    lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_FILESIZE) {
     f->eax = filesize(args[1]);
@@ -142,9 +144,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
-    // lock_acquire(&(thread_current()->pcb->authorlock));
+    lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = read(args[1], (char*)args[2], args[3]);
-    // lock_release(&(thread_current()->pcb->authorlock));
+    lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_WRITE) {
 
@@ -152,9 +154,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
-    // lock_acquire(&(thread_current()->pcb->authorlock));
+    lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = write(args[1], (char*)args[2], args[3]);
-    // lock_release(&(thread_current()->pcb->authorlock));
+    lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_SEEK) {
     seek(args[1], args[2]);
