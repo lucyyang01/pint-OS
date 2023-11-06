@@ -80,7 +80,7 @@ void userprog_init(void) {
   list_init(&t->pcb->user_thread_list);
   list_init(&t->pcb->user_lock_list);
   list_init(&t->pcb->user_semaphore_list);
-  bool x = list_empty(&t->pcb->user_lock_list);
+  // bool x = list_empty(&t->pcb->user_lock_list);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
@@ -108,7 +108,7 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
     memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
     free(argv[i]);
   }
-  bool x = list_empty(&thread_current()->pcb->user_lock_list);
+  // bool x = list_empty(&thread_current()->pcb->user_lock_list);
 
   /* Calculate total size that will be pushed after alignment. */
   int total_size_to_push = (argc + 1) * sizeof(char*) /* argv addresses and null sentinel */
@@ -188,7 +188,7 @@ pid_t process_execute(const char* file_name) {
 
     free(input);
   }
-  bool x = list_empty(&thread_current()->pcb->user_lock_list);
+  // bool x = list_empty(&thread_current()->pcb->user_lock_list);
   return tid;
 }
 
@@ -238,7 +238,7 @@ static void start_process(void* i) {
     list_init(&t->pcb->user_thread_list);
     list_init(&t->pcb->user_lock_list);
     list_init(&t->pcb->user_semaphore_list);
-    bool x = list_empty(&t->pcb->user_lock_list);
+    // bool x = list_empty(&t->pcb->user_lock_list);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
@@ -252,6 +252,17 @@ static void start_process(void* i) {
     init_file_descriptor_list(fdt);
 
     t->pcb->fileDescriptorTable = fdt;
+
+    struct user_thread_list_elem* thread_elem = malloc(sizeof(struct user_thread_list_elem));
+    struct list_elem lst = {NULL, NULL};
+    thread_elem->tid = t->tid;
+    thread_elem->elem = lst;
+    thread_elem->joined = false;
+    thread_elem->joiner = NULL;
+    thread_elem->exited = false;
+
+    // lock_acquire(&input->pcb->sherlock);
+    list_push_back(&t->pcb->user_thread_list, &thread_elem->elem);
   }
 
   char* programcopy = file_name;
@@ -979,6 +990,7 @@ tid_t pthread_join(tid_t tid UNUSED) {
       break;
     }
   }
+
   lock_release(&thread_current()->pcb->sherlock);
   return TID_ERROR;
 }
@@ -1034,14 +1046,26 @@ void pthread_exit_main(void) {
   struct list_elem* element;
   struct list lst = thread_current()->pcb->user_thread_list;
   lock_acquire(&thread_current()->pcb->sherlock);
+  //wake up any threads waiting for the main
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->tid == thread_current()->tid) {
+      if (u->joined) {
+        thread_unblock(u->joiner);
+      }
+    }
+  }
+
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
     //join on unjoined threads
     if (u->tid != thread_current()->tid) {
-      pthread_join(u->tid);
+      if (u->joined == false) {
+        lock_release(&thread_current()->pcb->sherlock);
+        pthread_join(u->tid);
+      }
     }
   }
-  lock_release(&thread_current()->pcb->sherlock);
   thread_exit();
   process_exit();
 }
@@ -1088,9 +1112,10 @@ bool user_lock_init(char* lock) {
   new_lock->elem = lst;
 
   /* Insert new lock into the list */
-  // lock_acquire(&thread_current()->pcb->sherlock);
+  lock_acquire(&thread_current()->pcb->sherlock);
   list_push_back(&lock_list, &new_lock->elem);
-  // lock_release(&thread_current()->pcb->sherlock);
+  lock_release(&thread_current()->pcb->sherlock);
+  // struct user_lock_list_elem* end = list_end(&lock_list);
   return true;
 }
 
@@ -1104,7 +1129,8 @@ bool user_lock_acquire(char* lock) {
   struct list_elem* e;
   struct user_lock_list_elem* lock_elem;
   bool success = false;
-  bool x = list_empty(&lock_list);
+  // bool x = list_empty(&lock_list);
+  e = list_end(&lock_list);
 
   for (e = list_begin(&lock_list); !list_empty(&lock_list) && e != list_end(&lock_list);
        e = list_next(e)) {
@@ -1120,11 +1146,11 @@ bool user_lock_acquire(char* lock) {
     }
     if (e->next == NULL) {
       lock_release(&thread_current()->pcb->user_lock);
-      return false;
+      return success;
     }
   }
   lock_release(&thread_current()->pcb->user_lock);
-  return false;
+  return success;
 }
 
 /* Releases lock, where lock is a pointer to a lock_t in userspace. Returns true if the lock
