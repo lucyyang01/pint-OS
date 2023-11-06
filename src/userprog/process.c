@@ -389,6 +389,7 @@ void process_exit(void) {
   }
 
   struct process* parent = cur->pcb->parent;
+  bool waiting = false;
 
   if (parent != NULL) {
     struct list children = parent->children;
@@ -401,6 +402,7 @@ void process_exit(void) {
       if (cur->pcb->pid == entry_pid) {
         /* Set child element struct's exit code and status */
         c->exited = true;
+        waiting = c->waited;
         c->exit_code = cur->pcb->exit_code;
         break;
       }
@@ -408,7 +410,7 @@ void process_exit(void) {
   }
 
   /* Up parent semaphore if is being waited upon */
-  if (cur->pcb->waited) {
+  if (waiting) {
     sema_up(&cur->pcb->sema_wait);
   }
 
