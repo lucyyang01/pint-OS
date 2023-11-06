@@ -284,6 +284,7 @@ static void start_process(void* i) {
       struct list_elem list = {NULL, NULL};
       child->elem = list;
       child->proc = new_pcb;
+      lock_init(&child->watson);
       list_push_back(&input->parent->children, &child->elem);
     }
     sema_up(&new_pcb->parent->sema_exec);
@@ -335,8 +336,6 @@ static void start_process(void* i) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  // sema_down(&temporary);
-
   struct list children = thread_current()->pcb->children;
   int exit_code = -1;
   bool foundChild = false;
@@ -356,17 +355,17 @@ int process_wait(pid_t child_pid UNUSED) {
       /* Child has not been waited and hasn't exited */
       if (!c->waited && !c->exited) {
         c->waited = true;
-        c->proc->waited = true;
-        exit_code = c->exit_code;
         // Down
         sema_down(&c->proc->sema_wait);
         exit_code = c->exit_code;
+
         break;
       }
       // /* Child has not been waited and has exited */
       else if (!c->waited && c->exited) {
         c->waited = true;
-        return c->exit_code;
+        exit_code = c->exit_code;
+        return exit_code;
       } else if (c->waited) {
         return -1;
       }
@@ -414,6 +413,7 @@ void process_exit(void) {
         c->exited = true;
         waiting = c->waited;
         c->exit_code = cur->pcb->exit_code;
+        waiting = c->waited;
         break;
       }
     }

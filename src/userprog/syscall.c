@@ -130,7 +130,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //create new file descriptor elem
   }
   if (args[0] == SYS_CLOSE) {
+    lock_acquire(&(thread_current()->pcb->authorlock));
     close(args[1]);
+    lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_FILESIZE) {
     f->eax = filesize(args[1]);
@@ -140,7 +142,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
+    // lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = read(args[1], (char*)args[2], args[3]);
+    // lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_WRITE) {
 
@@ -148,7 +152,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
+    // lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = write(args[1], (char*)args[2], args[3]);
+    // lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_SEEK) {
     seek(args[1], args[2]);
@@ -254,6 +260,7 @@ int write(int fd, const void* buffer, unsigned size) {
 /* Reads size bytes from the file open as fd into buffer. 
 Returns the number of bytes actually read (0 at EOF), or -1 if failed. */
 int read(int fd, void* buffer, unsigned size) {
+
   struct fileDescriptor* read_fd = find_fd(fd);
   if (read_fd == NULL)
     return -1;
