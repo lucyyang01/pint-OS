@@ -70,15 +70,17 @@ void userprog_init(void) {
 
   /* Initialize lock */
   lock_init(&(t->pcb->sherlock));
+  lock_init(&(t->pcb->authorlock));
   lock_init(&(t->pcb->user_lock));
   lock_init(&(t->pcb->sema_lock));
 
-  /* Child Processes */
+  /* Initialize lists */
 
   list_init(&t->pcb->children);
   list_init(&t->pcb->user_thread_list);
   list_init(&t->pcb->user_lock_list);
   list_init(&t->pcb->user_semaphore_list);
+  bool x = list_empty(&t->pcb->user_lock_list);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
@@ -106,6 +108,7 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
     memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
     free(argv[i]);
   }
+  bool x = list_empty(&thread_current()->pcb->user_lock_list);
 
   /* Calculate total size that will be pushed after alignment. */
   int total_size_to_push = (argc + 1) * sizeof(char*) /* argv addresses and null sentinel */
@@ -182,8 +185,10 @@ pid_t process_execute(const char* file_name) {
     return TID_ERROR;
   }
   if (input->success) {
+
     free(input);
   }
+  bool x = list_empty(&thread_current()->pcb->user_lock_list);
   return tid;
 }
 
@@ -197,7 +202,7 @@ static void start_process(void* i) {
   bool success, pcb_success;
 
   /* Allocate process control block */
-  struct process* new_pcb = malloc(sizeof(struct process));
+  struct process* new_pcb = calloc(sizeof(struct process), 1);
   success = pcb_success = new_pcb != NULL;
 
   /* Initialize process control block */
@@ -221,6 +226,7 @@ static void start_process(void* i) {
 
     /* Initialize lock */
     lock_init(&(t->pcb->sherlock));
+    lock_init(&(t->pcb->authorlock));
     lock_init(&(t->pcb->user_lock));
     lock_init(&(t->pcb->sema_lock));
 
@@ -232,6 +238,7 @@ static void start_process(void* i) {
     list_init(&t->pcb->user_thread_list);
     list_init(&t->pcb->user_lock_list);
     list_init(&t->pcb->user_semaphore_list);
+    bool x = list_empty(&t->pcb->user_lock_list);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
@@ -1097,8 +1104,10 @@ bool user_lock_acquire(char* lock) {
   struct list_elem* e;
   struct user_lock_list_elem* lock_elem;
   bool success = false;
+  bool x = list_empty(&lock_list);
 
-  for (e = list_begin(&lock_list); e != list_end(&lock_list); e = list_next(e)) {
+  for (e = list_begin(&lock_list); !list_empty(&lock_list) && e != list_end(&lock_list);
+       e = list_next(e)) {
     lock_elem = list_entry(e, struct user_lock_list_elem, elem);
     if (lock_elem->lock_id == lock) {
       if (lock_held_by_current_thread(&lock_elem->lock)) {
@@ -1129,7 +1138,8 @@ bool user_lock_release(char* lock) {
   struct user_lock_list_elem* lock_elem;
   struct list_elem* e;
   bool success = false;
-  for (e = list_begin(&lock_list); e != list_end(&lock_list); e = list_next(e)) {
+  for (e = list_begin(&lock_list); !list_empty(&lock_list) && e != list_end(&lock_list);
+       e = list_next(e)) {
     lock_elem = list_entry(e, struct user_lock_list_elem, elem);
     if (lock_elem->lock_id == lock) {
       if (!lock_held_by_current_thread(&lock_elem->lock)) {
@@ -1153,8 +1163,12 @@ Returns true if initialization was successful.
 You do not have to handle the case where sema_init is called on the same argument twice; 
 you can assume that the result of doing so is undefined behavior.*/
 bool user_sema_init(char* sema, int val) {
+  bool success = false;
   if (sema == NULL) {
-    return false;
+    return success;
+  }
+  if (val < 0) {
+    return success;
   }
   struct list sema_list = thread_current()->pcb->user_semaphore_list;
 
