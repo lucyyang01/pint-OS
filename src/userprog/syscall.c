@@ -130,9 +130,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //create new file descriptor elem
   }
   if (args[0] == SYS_CLOSE) {
-    lock_acquire(&(thread_current()->pcb->authorlock));
+    //lock_acquire(&(thread_current()->pcb->authorlock));
     close(args[1]);
-    lock_release(&(thread_current()->pcb->authorlock));
+    //lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_FILESIZE) {
     f->eax = filesize(args[1]);
