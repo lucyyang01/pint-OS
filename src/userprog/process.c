@@ -76,6 +76,8 @@ void userprog_init(void) {
 
   list_init(&t->pcb->children);
   list_init(&t->pcb->user_thread_list);
+  list_init(&t->pcb->user_lock_list);
+  list_init(&t->pcb->user_semaphore_list);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
@@ -224,6 +226,8 @@ static void start_process(void* i) {
     /* Child Processes */
     list_init(&t->pcb->children);
     list_init(&t->pcb->user_thread_list);
+    list_init(&t->pcb->user_lock_list);
+    list_init(&t->pcb->user_semaphore_list);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
@@ -391,6 +395,7 @@ void process_exit(void) {
 
   struct process* parent = cur->pcb->parent;
   bool waiting = false;
+
   if (parent != NULL) {
     struct list children = parent->children;
     struct list_elem* element;
@@ -402,6 +407,7 @@ void process_exit(void) {
       if (cur->pcb->pid == entry_pid) {
         /* Set child element struct's exit code and status */
         c->exited = true;
+        waiting = c->waited;
         c->exit_code = cur->pcb->exit_code;
         waiting = c->waited;
         break;
@@ -445,6 +451,28 @@ void process_exit(void) {
   }
   lock_release(&fdt->lock);
   free(cur->pcb->fileDescriptorTable);
+
+  /* Free list of locks in PCB */
+  // lock_acquire(&cur->pcb->sherlock);
+  struct list lock_list = cur->pcb->user_lock_list;
+  struct list_elem* e;
+  struct list_elem* next_e;
+  struct user_lock_list_elem* lock_elem;
+
+  // for (e = list_begin(&lock_list); e != list_end(&lock_list); e = next_e) {
+  //   next_e = list_next(e);
+  //   lock_elem = list_entry(e, struct user_lock_list_elem, elem);
+  //   list_remove(e);
+  //   free(lock_elem);
+  // }
+
+  // while (!list_empty(&lock_list)) {
+  //   struct list_elem* e = list_pop_front(&lock_list);
+  //   lock_elem = list_entry(e, struct user_lock_list_elem, elem);
+  //   free(lock_elem);
+  // }
+  // free(&lock_list);
+  // lock_release(&cur->pcb->sherlock);
 
   /* Free the PCB of this process and kill this thread
      Avoid race where PCB is freed before t->pcb is set to NULL
@@ -1027,4 +1055,91 @@ bool validate_pointer(void* ptr) {
     return false;
   }
   return true;
+}
+
+/* Initializes lock, where lock is a pointer to a lock_t in userspace. Returns true if 
+initialization was successful. You do not have to handle the case where lock_init is called
+on the same argument twice; you can assume that the result of doing so is undefined behavior. */
+bool user_lock_init(char* lock) {
+  if (lock == NULL) {
+    return false;
+  }
+  struct list lock_list = thread_current()->pcb->user_lock_list;
+
+  /* Create new user lock list element */
+  struct user_lock_list_elem* new_lock = malloc(sizeof(struct user_lock_list_elem));
+  if (new_lock == NULL) {
+    return false;
+  }
+  lock_init(&new_lock->lock);
+  new_lock->lock_id = lock;
+  struct list_elem lst = {NULL, NULL};
+  new_lock->elem = lst;
+
+  /* Insert new lock into the list */
+  // lock_acquire(&thread_current()->pcb->sherlock);
+  list_push_back(&lock_list, &new_lock->elem);
+  // lock_release(&thread_current()->pcb->sherlock);
+  return true;
+}
+
+/* Acquires lock, blocking if necessary, where lock is a pointer to a lock_t in userspace. 
+Returns true if the lock was successfully acquired, false if the lock was not registered 
+with the kernel in a lock_init call or if the current thread already holds the lock. */
+
+bool user_lock_acquire(char* lock) {
+  lock_acquire(&thread_current()->pcb->sherlock);
+  struct list lock_list = thread_current()->pcb->user_lock_list;
+  struct list_elem* e;
+  struct user_lock_list_elem* lock_elem;
+  bool success = false;
+
+  for (e = list_begin(&lock_list); e != list_end(&lock_list); e = list_next(e)) {
+    lock_elem = list_entry(e, struct user_lock_list_elem, elem);
+    if (lock_elem->lock_id == lock) {
+      if (lock_held_by_current_thread(&lock_elem->lock)) {
+        return success;
+      }
+      //lock_release(&thread_current()->pcb->sherlock);
+      bool success = lock_try_acquire(&lock_elem->lock);
+      lock_release(&thread_current()->pcb->sherlock);
+      return success;
+    }
+    if (e->next == NULL) {
+      lock_release(&thread_current()->pcb->sherlock);
+      return false;
+    }
+  }
+  lock_release(&thread_current()->pcb->sherlock);
+  return false;
+}
+
+/* Releases lock, where lock is a pointer to a lock_t in userspace. Returns true if the lock
+was successfully released, false if the lock was not registered with the kernel in a lock_init
+call or if the current thread does not hold the lock. */
+
+bool user_lock_release(char* lock) {
+  /* Check if lock held by current thread */
+  lock_acquire(&thread_current()->pcb->sherlock);
+  struct list lock_list = thread_current()->pcb->user_lock_list;
+  struct user_lock_list_elem* lock_elem;
+  struct list_elem* e;
+  bool success = false;
+  for (e = list_begin(&lock_list); e != list_end(&lock_list); e = list_next(e)) {
+    lock_elem = list_entry(e, struct user_lock_list_elem, elem);
+    if (lock_elem->lock_id == lock) {
+      if (!lock_held_by_current_thread(&lock_elem->lock)) {
+        success = false;
+        return success;
+      }
+      lock_release(&lock_elem->lock);
+      if (!lock_held_by_current_thread(&lock_elem->lock)) {
+        success = true;
+      }
+      lock_release(&thread_current()->pcb->sherlock);
+      return success;
+    }
+  }
+  lock_release(&thread_current()->pcb->sherlock);
+  return success;
 }
