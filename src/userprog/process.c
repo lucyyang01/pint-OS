@@ -70,7 +70,8 @@ void userprog_init(void) {
 
   /* Initialize lock */
   lock_init(&(t->pcb->sherlock));
-  lock_init(&(t->pcb->authorlock));
+  lock_init(&(t->pcb->user_lock));
+  lock_init(&(t->pcb->sema_lock));
 
   /* Child Processes */
 
@@ -85,6 +86,8 @@ void userprog_init(void) {
   t->pcb->pid = t->tid;
 
   t->pcb->exit_code = -1;
+
+  //TODO: Do we need  to initialize the file descriptor list here?
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -218,7 +221,8 @@ static void start_process(void* i) {
 
     /* Initialize lock */
     lock_init(&(t->pcb->sherlock));
-    lock_init(&(t->pcb->authorlock));
+    lock_init(&(t->pcb->user_lock));
+    lock_init(&(t->pcb->sema_lock));
 
     /* Parent Process */
     t->pcb->parent = input->parent;
@@ -889,9 +893,9 @@ static void start_pthread(void* exec_ UNUSED) {
   thread_elem->joiner = NULL;
   thread_elem->exited = false;
 
-  lock_acquire(&input->pcb->sherlock);
+  // lock_acquire(&input->pcb->sherlock);
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
-  lock_release(&input->pcb->sherlock);
+  // lock_release(&input->pcb->sherlock);
 
   // push_to_stack(argc, argv, &if_);
 
@@ -1088,7 +1092,7 @@ Returns true if the lock was successfully acquired, false if the lock was not re
 with the kernel in a lock_init call or if the current thread already holds the lock. */
 
 bool user_lock_acquire(char* lock) {
-  lock_acquire(&thread_current()->pcb->sherlock);
+  lock_acquire(&thread_current()->pcb->user_lock);
   struct list lock_list = thread_current()->pcb->user_lock_list;
   struct list_elem* e;
   struct user_lock_list_elem* lock_elem;
@@ -1102,15 +1106,15 @@ bool user_lock_acquire(char* lock) {
       }
       //lock_release(&thread_current()->pcb->sherlock);
       bool success = lock_try_acquire(&lock_elem->lock);
-      lock_release(&thread_current()->pcb->sherlock);
+      lock_release(&thread_current()->pcb->user_lock);
       return success;
     }
     if (e->next == NULL) {
-      lock_release(&thread_current()->pcb->sherlock);
+      lock_release(&thread_current()->pcb->user_lock);
       return false;
     }
   }
-  lock_release(&thread_current()->pcb->sherlock);
+  lock_release(&thread_current()->pcb->user_lock);
   return false;
 }
 
@@ -1120,7 +1124,7 @@ call or if the current thread does not hold the lock. */
 
 bool user_lock_release(char* lock) {
   /* Check if lock held by current thread */
-  lock_acquire(&thread_current()->pcb->sherlock);
+  lock_acquire(&thread_current()->pcb->user_lock);
   struct list lock_list = thread_current()->pcb->user_lock_list;
   struct user_lock_list_elem* lock_elem;
   struct list_elem* e;
@@ -1136,10 +1140,82 @@ bool user_lock_release(char* lock) {
       if (!lock_held_by_current_thread(&lock_elem->lock)) {
         success = true;
       }
-      lock_release(&thread_current()->pcb->sherlock);
+      lock_release(&thread_current()->pcb->user_lock);
       return success;
     }
   }
-  lock_release(&thread_current()->pcb->sherlock);
+  lock_release(&thread_current()->pcb->user_lock);
   return success;
+}
+
+/*Initializes sema to val, where sema is a pointer to a sema_t in userspace. 
+Returns true if initialization was successful. 
+You do not have to handle the case where sema_init is called on the same argument twice; 
+you can assume that the result of doing so is undefined behavior.*/
+bool user_sema_init(char* sema, int val) {
+  if (sema == NULL) {
+    return false;
+  }
+  struct list sema_list = thread_current()->pcb->user_semaphore_list;
+
+  /* Create new sema lock list element */
+  struct user_semaphore_list_elem* new_sema = malloc(sizeof(struct user_semaphore_list_elem));
+  if (new_sema == NULL) {
+    return false;
+  }
+  sema_init(&new_sema->sema, val);
+  new_sema->sema_id = sema;
+  struct list_elem lst = {NULL, NULL};
+  new_sema->elem = lst;
+
+  list_push_back(&sema_list, &new_sema->elem);
+  return true;
+}
+
+/*Downs sema, blocking if necessary, where sema is a pointer to a sema_t in userspace.
+ Returns true if the semaphore was successfully downed, 
+ false if the semaphore was not registered with the kernel in a sema_init call.*/
+bool user_sema_down(char* sema) {
+  struct list sema_list = thread_current()->pcb->user_semaphore_list;
+  struct list_elem* e;
+  struct user_semaphore_list_elem* sema_elem;
+  lock_acquire(&thread_current()->pcb->sema_lock);
+  for (e = list_begin(&sema_list); e != list_end(&sema_list); e = list_next(e)) {
+    sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
+    if (sema_elem->sema_id == sema) {
+      lock_release(&thread_current()->pcb->sema_lock);
+      sema_down(&sema_elem->sema);
+      return true;
+    }
+    if (e->next == NULL) {
+      lock_release(&thread_current()->pcb->sema_lock);
+      return false;
+    }
+  }
+  lock_release(&thread_current()->pcb->sema_lock);
+  return false;
+}
+
+/*Ups sema, where sema is a pointer to a sema_t in userspace. 
+Returns true if the sema was successfully upped, 
+false if the sema was not registered with the kernel in a sema_init call.*/
+bool user_sema_up(char* sema) {
+  struct list sema_list = thread_current()->pcb->user_semaphore_list;
+  struct list_elem* e;
+  struct user_semaphore_list_elem* sema_elem;
+  lock_acquire(&thread_current()->pcb->sema_lock);
+  for (e = list_begin(&sema_list); e != list_end(&sema_list); e = list_next(e)) {
+    sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
+    if (sema_elem->sema_id == sema) {
+      lock_release(&thread_current()->pcb->sema_lock);
+      sema_up(&sema_elem->sema);
+      return true;
+    }
+    if (e->next == NULL) {
+      lock_release(&thread_current()->pcb->sema_lock);
+      return false;
+    }
+  }
+  lock_release(&thread_current()->pcb->sema_lock);
+  return false;
 }

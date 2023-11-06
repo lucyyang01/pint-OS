@@ -32,8 +32,9 @@ struct process {
   /* Synchronization variables */
   struct semaphore sema_exec;
   struct semaphore sema_wait;
-  struct lock sherlock;
-  struct lock authorlock;
+  struct lock sherlock;  /* Locks most of PCB variables*/
+  struct lock user_lock; /* Locks list of user locks */
+  struct lock sema_lock; /* Locks list of user semaphores */
 
   struct process* parent;
   struct list children;

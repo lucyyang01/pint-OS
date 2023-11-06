@@ -130,9 +130,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //create new file descriptor elem
   }
   if (args[0] == SYS_CLOSE) {
-    lock_acquire(&(thread_current()->pcb->authorlock));
+    //lock_acquire(&(thread_current()->pcb->authorlock));
     close(args[1]);
-    lock_release(&(thread_current()->pcb->authorlock));
+    //lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_FILESIZE) {
     f->eax = filesize(args[1]);
@@ -142,9 +142,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
-    lock_acquire(&(thread_current()->pcb->authorlock));
+    // lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = read(args[1], (char*)args[2], args[3]);
-    lock_release(&(thread_current()->pcb->authorlock));
+    // lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_WRITE) {
 
@@ -152,9 +152,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = -1;
       process_exit();
     }
-    lock_acquire(&(thread_current()->pcb->authorlock));
+    // lock_acquire(&(thread_current()->pcb->authorlock));
     f->eax = write(args[1], (char*)args[2], args[3]);
-    lock_release(&(thread_current()->pcb->authorlock));
+    // lock_release(&(thread_current()->pcb->authorlock));
   }
   if (args[0] == SYS_SEEK) {
     seek(args[1], args[2]);
@@ -175,15 +175,25 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //f->eax = 0;
     pthread_exit();
   }
+  if (args[0] == SYS_LOCK_INIT) {
+    f->eax = user_lock_init(args[1]);
+  }
   if (args[0] == SYS_LOCK_ACQUIRE) {
     f->eax = user_lock_acquire(args[1]);
     int x = 0;
   }
-  if (args[0] == SYS_LOCK_INIT) {
-    f->eax = user_lock_init(args[1]);
-  }
   if (args[0] == SYS_LOCK_RELEASE) {
     f->eax = user_lock_release(args[1]);
+  }
+
+  if (args[0] == SYS_SEMA_INIT) {
+    f->eax = user_sema_init(args[1], args[2]);
+  }
+  if (args[0] == SYS_SEMA_DOWN) {
+    f->eax = user_sema_down(args[1]);
+  }
+  if (args[0] == SYS_SEMA_UP) {
+    f->eax = user_sema_up(args[1]);
   }
 }
 
