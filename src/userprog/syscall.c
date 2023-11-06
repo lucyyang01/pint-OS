@@ -169,6 +169,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     //f->eax = 0;
     pthread_exit();
   }
+  if (args[0] == SYS_LOCK_ACQUIRE) {
+    f->eax = user_lock_acquire(args[1]);
+    int x = 0;
+  }
+  if (args[0] == SYS_LOCK_INIT) {
+    f->eax = user_lock_init(args[1]);
+  }
+  if (args[0] == SYS_LOCK_RELEASE) {
+    f->eax = user_lock_release(args[1]);
+  }
 }
 
 double compute_e(int n) { return (double)sys_sum_to_e(n); }

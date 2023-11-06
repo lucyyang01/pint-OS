@@ -43,6 +43,20 @@ struct process {
   bool waited;
   struct file* f;
   struct list user_thread_list;
+  struct list user_lock_list; /* list of locks held by a process */
+  struct list user_semaphore_list;
+};
+
+struct user_semaphore_list_elem {
+  struct semaphore sema;
+  char* sema_id;
+  struct list_elem elem;
+};
+
+struct user_lock_list_elem {
+  struct lock lock;
+  char* lock_id;
+  struct list_elem elem;
 };
 
 struct user_thread_list_elem {
