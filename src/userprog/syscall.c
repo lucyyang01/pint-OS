@@ -197,6 +197,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_SEMA_UP) {
     f->eax = user_sema_up(args[1]);
   }
+
+  if (args[0] == SYS_GET_TID) {
+    f->eax = thread_current()->tid;
+  }
 }
 
 double compute_e(int n) { return (double)sys_sum_to_e(n); }
