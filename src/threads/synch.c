@@ -173,7 +173,12 @@ void lock_acquire(struct lock* lock) {
   ASSERT(lock != NULL);
   ASSERT(!intr_context());
   ASSERT(!lock_held_by_current_thread(lock));
-
+  //find lock's holder if it exists
+  struct thread* curr_holder = lock->holder;
+  if (curr_holder != NULL) {
+    //donate priority to the holder
+    thread_donate_priority(curr_holder, lock);
+  }
   sema_down(&lock->semaphore);
   lock->holder = thread_current();
 }

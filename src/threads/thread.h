@@ -104,9 +104,9 @@ struct thread {
   struct lock lock;
 
   /* Priority Donation Variables */
-  int effective;              /* Effective priority of thread */
-  struct lock donated_lock;   /* Thread we donated priority to */
-  struct list donating_locks; /* List of all threads who have donated to us */
+  int effective;            /* Effective priority of thread */
+  struct lock donated_lock; /* Thread we donated priority to */
+  struct list donor_list;   /* List of locks held by threads who have donated to us */
 
 #ifdef USERPROG
   /* Owned by process.c. */
@@ -144,6 +144,13 @@ struct pq_elem {
 struct priority_queue {
   struct list queue;
   struct lock pq_lock;
+};
+
+/* The element of the donor lock list. */
+struct dl_elem {
+  int holder_priority; /* stores the effective priority of the lock's holder */
+  struct lock* lock;   /* lock held by the holding thread */
+  struct list_elem elem;
 };
 
 void thread_init(void);
