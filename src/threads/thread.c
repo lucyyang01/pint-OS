@@ -26,7 +26,7 @@
 static struct list fifo_ready_list;
 
 /* List of threads in THREAD_READY state ordered by priority. */
-static struct priority_queue priority_queue;
+static struct list priority_queue;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -115,12 +115,12 @@ scheduler_func* scheduler_jump_table[8] = {thread_schedule_fifo,     thread_sche
    It is not safe to call thread_current() until this function
    finishes. */
 void thread_init(void) {
-  printf("I REACHED THE TOP OF INIT ==============");
   ASSERT(intr_get_level() == INTR_OFF);
 
   lock_init(&tid_lock);
   list_init(&fifo_ready_list);
-  priority_queue_init(&priority_queue);
+  /*initialize priority queue*/
+  list_init(&priority_queue);
   list_init(&all_list);
   list_init(&sleep_list);
 
@@ -188,7 +188,6 @@ void thread_print_stats(void) {
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
 tid_t thread_create(const char* name, int priority, thread_func* function, void* aux) {
-  printf("I REACHED THE TOP OF CREATE ==============");
   struct thread* t;
   struct kernel_thread_frame* kf;
   struct switch_entry_frame* ef;
@@ -214,7 +213,6 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Stack frame for switch_entry(). */
   ef = alloc_frame(t, sizeof *ef);
-  printf("I REACHED STACK FRAME ALLOCATION ==============");
   ef->eip = (void (*)(void))kernel_thread;
 
   /* Stack frame for switch_threads(). */
@@ -230,7 +228,9 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   asm("fsave (%0); fninit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&sf->fpu), "g"(&fpu_buf));
   /* Add to run queue. */
   thread_unblock(t);
-
+  if (thread_current()->effective < priority) {
+    thread_yield();
+  }
   return tid;
 }
 
@@ -260,18 +260,12 @@ static void thread_enqueue(struct thread* t) {
   if (active_sched_policy == SCHED_FIFO)
     list_push_back(&fifo_ready_list, &t->elem);
   else if (active_sched_policy == SCHED_PRIO) {
-    // Create new priority queue elelement
-    //can't call malloc here
-    //have to use thread struct instead of making a new element struct
-    struct pq_elem* pq_el = malloc(sizeof(struct pq_elem));
-    pq_el->t = t;
-    pq_el->priority = t->effective;
-    // Insert element into priority queue ordered using our priority comparer.
-    //lock_acquire(&priority_queue.pq_lock);
-    //enum intr_level old_level = intr_disable();
-    list_insert_ordered(&priority_queue.queue, &pq_el->elem, greater_list, greater_prio);
-    //intr_set_level(old_level);
-    //lock_release(&priority_queue.pq_lock);
+    list_insert_ordered(&priority_queue, &t->pq_elem, greater_list, greater_prio);
+    // if (t->effective > thread_current()->effective){
+    //   thread_yield();
+    // }
+    // schedule();
+
   } else
     PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
 }
@@ -374,18 +368,16 @@ void thread_set_priority(int new_priority) {
 
   //change base priority to the new priority
   t->priority = new_priority;
-
-  //update effective priority if the new priority is greater
-  if (new_priority > old_priority) {
-    t->effective = new_priority;
-  }
+  t->effective = new_priority;
 
   //check if next highest prio thread in q has prio > new effective prio
-  struct list_elem* next_highest = list_front(&priority_queue.queue);
-  struct thread* next_highest_t = list_entry(next_highest, struct thread, elem);
-  //list_entry(list_front(&priority_queue.queue), struct thread, elem)
-  //if (next_highest_t->effective > t->effective) thread_yield();
-  //intr_yield_on_return();
+  if (!list_empty(&priority_queue)) {
+    struct list_elem* next_highest = list_front(&priority_queue);
+    struct thread* next_highest_t = list_entry(next_highest, struct thread, pq_elem);
+    if (next_highest_t->effective > t->effective)
+      thread_yield();
+  }
+
   intr_set_level(old_level);
 }
 
@@ -402,10 +394,9 @@ void thread_donate_priority(struct thread* t, struct lock* lock) {
 
   //check pq contains t, if so we remove it
   struct list_elem* e;
-  for (e = list_begin(&priority_queue.queue); e != list_end(&priority_queue.queue);
-       e = list_next(e)) {
-    struct pq_elem* pq_el = list_entry(e, struct pq_elem, elem);
-    if (pq_el->t == t) {
+  for (e = list_begin(&priority_queue); e != list_end(&priority_queue); e = list_next(e)) {
+    struct thread* curr_thread = list_entry(e, struct thread, pq_elem);
+    if (curr_thread == t) {
       list_remove(e);
       break;
     }
@@ -478,11 +469,9 @@ static void idle(void* idle_started_ UNUSED) {
 
 /* Function used as the basis for a kernel thread. */
 static void kernel_thread(thread_func* function, void* aux) {
-  printf("I REACHED KERNEL THREAD =====");
   ASSERT(function != NULL);
 
   intr_enable(); /* The scheduler runs with interrupts off. */
-  printf("I REACHED INTERRUPTS ENABLED =====");
   function(aux); /* Execute the thread function. */
   thread_exit(); /* If function() returns, kill the thread. */
 }
@@ -520,7 +509,6 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
   list_init(&t->donor_list);
-  list_init(&priority_queue.queue);
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
@@ -549,9 +537,9 @@ static struct thread* thread_schedule_fifo(void) {
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
   //PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
-  if (!list_empty(&priority_queue.queue)) {
-    struct pq_elem* pq_e = list_entry(list_pop_front(&priority_queue.queue), struct pq_elem, elem);
-    return pq_e->t;
+  if (!list_empty(&priority_queue)) {
+    struct thread* t = list_entry(list_pop_front(&priority_queue), struct thread, pq_elem);
+    return t;
   } else
     return idle_thread;
 }
@@ -682,28 +670,27 @@ struct list* get_sleepy() {
 }
 void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
 
-/* Initialize the priority queue. */
-void priority_queue_init(struct priority_queue* pq) {
-  list_init(&pq->queue);
-  lock_init(&pq->pq_lock);
-}
-
 /* Comparator to sort queue by priority. */
 static bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
-  struct pq_elem* pq_e1 = list_entry(pq_elem1, struct pq_elem, elem);
-  struct pq_elem* pq_e2 = list_entry(pq_elem2, struct pq_elem, elem);
-  if (pq_e1->priority > pq_e2->priority) {
+  struct thread* t1 = list_entry(pq_elem1, struct thread, pq_elem);
+  struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
+  //struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
+  // struct list_elem* next_highest = list_front(&priority_queue);
+  // struct thread* t2 = list_entry(next_highest, struct thread, pq_elem);
+  if (t1->effective > t2->effective) {
     return true;
   }
   return false;
 }
 
 static bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux) {
-  struct pq_elem* pq1 = list_entry(pq_e1, struct pq_elem, elem);
-  struct pq_elem* pq2 = list_entry(pq_e2, struct pq_elem, elem);
-  bool (*compare)(const struct pq_elem* pq1, const struct pq_elem* pq2) = aux;
-  return compare(pq1, pq2);
+  // struct thread* t1 = list_entry(pq_e1, struct thread, pq_elem);
+  // struct thread* t2 = list_entry(pq_e2, struct thread, pq_elem);
+  bool (*compare)(const struct list_elem* pq_e1, const struct list_elem* pq_e2) = aux;
+  return compare(pq_e1, pq_e2);
 }
+
+//CHECK to make sure we can still maintain the list of locks by priority
 
 /* Comparator to sort list of locks by priority. */
 static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2) {

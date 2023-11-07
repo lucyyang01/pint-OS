@@ -97,7 +97,9 @@ struct thread {
   struct list_elem wait_elem;
 
   /* List element for priority queue*/
-  //we can either use elem (defined above) and the fifo list or we can have
+  //we can either use elem (defined above) and the fifo list or we can have our own special pq elem and a priority queue
+  //or we can use the list elem in thread and the pq?
+  struct list_elem pq_elem;
 
   /*Sleeping variables*/
   int64_t wakeup_time; /*The time that the thread should wake up*/
