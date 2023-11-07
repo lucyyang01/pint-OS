@@ -262,7 +262,7 @@ static void start_process(void* i) {
     thread_elem->exited = false;
 
     lock_acquire(&t->pcb->sherlock);
-    list_push_back(&t->pcb->user_thread_list, &thread_elem->elem);
+    list_push_front(&t->pcb->user_thread_list, &thread_elem->elem);
     size_t listsize = list_size(&t->pcb->user_thread_list);
     lock_release(&t->pcb->sherlock);
   }
@@ -913,7 +913,7 @@ static void start_pthread(void* exec_ UNUSED) {
   thread_elem->exited = false;
 
   lock_acquire(&input->pcb->sherlock);
-  list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
+  list_push_front(&input->pcb->user_thread_list, &thread_elem->elem);
   size_t listsize = list_size(&input->pcb->user_thread_list);
   lock_release(&input->pcb->sherlock);
 
@@ -1126,12 +1126,12 @@ bool user_lock_init(char* lock) {
   }
   lock_init(&new_lock->lock);
   new_lock->lock_id = lock;
-  struct list_elem lst = {NULL, NULL};
-  new_lock->elem = lst;
+  // struct list_elem lst = {NULL, NULL};
+  // new_lock->elem = lst;
 
   /* Insert new lock into the list */
   lock_acquire(&thread_current()->pcb->sherlock);
-  list_push_back(&lock_list, &new_lock->elem);
+  list_push_front(&lock_list, &new_lock->elem);
   lock_release(&thread_current()->pcb->sherlock);
   // struct user_lock_list_elem* end = list_end(&lock_list);
   return true;
@@ -1226,7 +1226,7 @@ bool user_sema_init(char* sema, int val) {
   struct list_elem lst = {NULL, NULL};
   new_sema->elem = lst;
 
-  list_push_back(&sema_list, &new_sema->elem);
+  list_push_front(&sema_list, &new_sema->elem);
   return true;
 }
 
