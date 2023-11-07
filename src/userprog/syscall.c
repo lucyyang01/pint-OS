@@ -175,7 +175,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   }
   if (args[0] == SYS_PT_EXIT) {
     //f->eax = 0;
-    pthread_exit();
+    if (thread_current()->pcb->main_thread == thread_current()) {
+      pthread_exit_main();
+    } else {
+      pthread_exit();
+    }
   }
   if (args[0] == SYS_LOCK_INIT) {
     f->eax = user_lock_init(args[1]);
