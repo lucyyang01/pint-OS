@@ -287,6 +287,9 @@ static void start_process(void* i) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
     input->success = success;
+    if (t->pcb->pagedir == NULL) {
+      t->pcb->pagedir = pagedir_create();
+    }
 
     /* Save kernel FPU. Init new FPU, Save.*/
     char fpu_buf[108];
@@ -476,6 +479,19 @@ void process_exit(void) {
   lock_release(&fdt->lock);
   free(cur->pcb->fileDescriptorTable);
 
+  /*process_exit should have an algorithm that allows the exiting thread to kill other threads in a way that 
+  ensures that resources are not leaked. 
+  In the staff solution, this is done by waiting for the thread to trap back to userspace, and directing it to pthread_exit.
+  Don’t forget to wake any joining threads on the exiter. 
+  Don’t forget to free all resources acquired (list of join statuses, list of user locks, list of user semaphores)*/
+
+  //is_trap_from_userspace()
+  /*process_exit should arrange for one thread to become the designated exiter, 
+  have that thread wake its joiners, and wait for all other threads 
+  (including concurrent exiters) to die before proceeding. This can be done with a CV.*/
+  // struct condition *designated_exit = {};
+  // cond_init(designated_exit);
+
   /* Free list of locks in PCB */
   // lock_acquire(&cur->pcb->sherlock);
   struct list lock_list = cur->pcb->user_lock_list;
@@ -484,11 +500,43 @@ void process_exit(void) {
   struct user_lock_list_elem* lock_elem;
 
   // for (e = list_begin(&lock_list); e != list_end(&lock_list); e = next_e) {
+  //   if(e->next == NULL){
+  //     break;
+  //   }
   //   next_e = list_next(e);
   //   lock_elem = list_entry(e, struct user_lock_list_elem, elem);
   //   list_remove(e);
   //   free(lock_elem);
   // }
+
+  //free semaphore list
+  // struct list sema_list = cur->pcb->user_semaphore_list;
+  // struct user_semaphore_list_elem* sema_elem;
+
+  // for (e = list_begin(&sema_list); e != list_end(&sema_list); e = next_e) {
+  //   if(e->next == NULL){
+  //     break;
+  //   }
+  //   next_e = list_next(e);
+  //   sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
+  //   list_remove(e);
+  //   free(lock_elem);
+  // }
+
+  //free thread list
+  // struct list thread_list = cur->pcb->user_thread_list;
+  // struct user_thread_list_elem* thread_elem;
+
+  // for (e = list_begin(&thread_list); e != list_end(&thread_list); e = next_e) {
+  //   if(e->next == NULL){
+  //     break;
+  //   }
+  //   next_e = list_next(e);
+  //   thread_elem = list_entry(e, struct user_semaphore_list_elem, elem);
+  //   list_remove(e);
+  //   free(lock_elem);
+  // }
+  //lock_release(&cur->pcb->sherlock);
 
   // while (!list_empty(&lock_list)) {
   //   struct list_elem* e = list_pop_front(&lock_list);
@@ -847,19 +895,19 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
   struct thread* t = thread_current();
 
   // TODO Keep track of how many pages have been installed
+  lock_acquire(&t->pcb->authorlock);
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     // use for loop to iterate through user_thread_list from pcb
     int numPages = 0;
     while (!success) {
       numPages = numPages + 1;
-      lock_acquire(&t->pcb->authorlock);
       success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
-      lock_release(&t->pcb->authorlock);
     }
     *esp = (uint8_t*)PHYS_BASE - (PGSIZE * (numPages - 1));
     t->page = ((uint8_t*)PHYS_BASE) - (PGSIZE * numPages);
   }
+  lock_release(&t->pcb->authorlock);
 
   /* Setup the stack */
   /* align esp to 16 byte boundary */
@@ -893,6 +941,9 @@ static void start_pthread(void* exec_ UNUSED) {
 
   struct user_thread_input* input = (struct user_thread_input*)exec_;
   t->pcb = input->pcb;
+  if (t->pcb->pagedir == NULL) {
+    t->pcb->pagedir = pagedir_create();
+  }
   process_activate();
   struct intr_frame if_;
   bool success;
@@ -1090,6 +1141,7 @@ void pthread_exit_main(void) {
   pagedir_clear_page(thread_current()->pcb->pagedir, thread_current()->page);
   lock_release(&thread_current()->pcb->authorlock);
   lock_release(&thread_current()->pcb->sherlock);
+  thread_current()->pcb->exit_code = 0;
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, 0);
   //thread_exit();
   process_exit();
