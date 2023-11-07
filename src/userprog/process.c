@@ -505,7 +505,6 @@ void process_exit(void) {
   struct process* pcb_to_free = cur->pcb;
   cur->pcb = NULL;
   free(pcb_to_free);
-
   thread_exit();
 }
 
@@ -1084,6 +1083,7 @@ void pthread_exit_main(void) {
   }
 
   lock_release(&thread_current()->pcb->sherlock);
+  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, 0);
   //thread_exit();
   process_exit();
 }
