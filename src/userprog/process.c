@@ -853,7 +853,9 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
     int numPages = 0;
     while (!success) {
       numPages = numPages + 1;
+      lock_acquire(&t->pcb->authorlock);
       success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
+      lock_release(&t->pcb->authorlock);
     }
     *esp = (uint8_t*)PHYS_BASE - (PGSIZE * (numPages - 1));
     t->page = ((uint8_t*)PHYS_BASE) - (PGSIZE * numPages);
@@ -1081,7 +1083,8 @@ void pthread_exit_main(void) {
       break;
     }
   }
-
+  palloc_free_page(pagedir_get_page(thread_current()->pcb->pagedir, thread_current()->page));
+  pagedir_clear_page(thread_current()->pcb->pagedir, thread_current()->page);
   lock_release(&thread_current()->pcb->sherlock);
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, 0);
   //thread_exit();
