@@ -96,6 +96,9 @@ struct thread {
   /*List element for wait list*/
   struct list_elem wait_elem;
 
+  /* List element for priority queue*/
+  //we can either use elem (defined above) and the fifo list or we can have
+
   /*Sleeping variables*/
   int64_t wakeup_time; /*The time that the thread should wake up*/
   bool is_sleeping;    /*bool to determing is thread is alseep*/
@@ -132,19 +135,6 @@ enum sched_policy {
  *  "-sched-default", "-sched-fair", "-sched-mlfqs", "-sched-fifo"
  * Is equal to SCHED_FIFO by default. */
 extern enum sched_policy active_sched_policy;
-
-/* The element of the priority queue. Keeps track of thread and its priority. */
-struct pq_elem {
-  struct thread* t;
-  int priority;
-  struct list_elem elem;
-};
-
-/* The Priority Queue. Contains a list of pq_elem and a lock. */
-struct priority_queue {
-  struct list queue;
-  struct lock pq_lock;
-};
 
 /* The element of the donor lock list. */
 struct dl_elem {
