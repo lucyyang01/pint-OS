@@ -1012,8 +1012,10 @@ tid_t pthread_join(tid_t tid UNUSED) {
 void pthread_exit(void) {
   struct thread* t = thread_current();
   lock_acquire(&thread_current()->pcb->sherlock);
+  lock_acquire(&thread_current()->pcb->authorlock);
   palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
   pagedir_clear_page(t->pcb->pagedir, t->page);
+  lock_release(&thread_current()->pcb->authorlock);
 
   /* Let waiter go! */
   struct list_elem* element;
@@ -1083,8 +1085,10 @@ void pthread_exit_main(void) {
       break;
     }
   }
+  lock_acquire(&thread_current()->pcb->authorlock);
   palloc_free_page(pagedir_get_page(thread_current()->pcb->pagedir, thread_current()->page));
   pagedir_clear_page(thread_current()->pcb->pagedir, thread_current()->page);
+  lock_release(&thread_current()->pcb->authorlock);
   lock_release(&thread_current()->pcb->sherlock);
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, 0);
   //thread_exit();
@@ -1105,7 +1109,9 @@ bool validate_pointer(void* ptr) {
   }
   //check if ptr is unmapped virtual memory
   uint32_t* pd = active_pd();
+  lock_acquire(&(thread_current()->pcb->authorlock));
   void* dog = pagedir_get_page(pd, ptr);
+  lock_release(&(thread_current()->pcb->authorlock));
   if (dog == NULL) {
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
     return false;
