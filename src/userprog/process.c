@@ -287,6 +287,9 @@ static void start_process(void* i) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
     input->success = success;
+    if (t->pcb->pagedir == NULL) {
+      t->pcb->pagedir = pagedir_create();
+    }
 
     /* Save kernel FPU. Init new FPU, Save.*/
     char fpu_buf[108];
@@ -892,19 +895,19 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
   struct thread* t = thread_current();
 
   // TODO Keep track of how many pages have been installed
+  lock_acquire(&t->pcb->authorlock);
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     // use for loop to iterate through user_thread_list from pcb
     int numPages = 0;
     while (!success) {
       numPages = numPages + 1;
-      lock_acquire(&t->pcb->authorlock);
       success = install_page(((uint8_t*)PHYS_BASE) - (PGSIZE * numPages), kpage, true);
-      lock_release(&t->pcb->authorlock);
     }
     *esp = (uint8_t*)PHYS_BASE - (PGSIZE * (numPages - 1));
     t->page = ((uint8_t*)PHYS_BASE) - (PGSIZE * numPages);
   }
+  lock_release(&t->pcb->authorlock);
 
   /* Setup the stack */
   /* align esp to 16 byte boundary */
@@ -938,6 +941,9 @@ static void start_pthread(void* exec_ UNUSED) {
 
   struct user_thread_input* input = (struct user_thread_input*)exec_;
   t->pcb = input->pcb;
+  if (t->pcb->pagedir == NULL) {
+    t->pcb->pagedir = pagedir_create();
+  }
   process_activate();
   struct intr_frame if_;
   bool success;
