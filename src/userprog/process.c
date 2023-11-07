@@ -261,8 +261,10 @@ static void start_process(void* i) {
     thread_elem->joiner = NULL;
     thread_elem->exited = false;
 
-    // lock_acquire(&input->pcb->sherlock);
+    lock_acquire(&t->pcb->sherlock);
     list_push_back(&t->pcb->user_thread_list, &thread_elem->elem);
+    size_t listsize = list_size(&t->pcb->user_thread_list);
+    lock_release(&t->pcb->sherlock);
   }
 
   char* programcopy = file_name;
@@ -503,7 +505,6 @@ void process_exit(void) {
   struct process* pcb_to_free = cur->pcb;
   cur->pcb = NULL;
   free(pcb_to_free);
-
   thread_exit();
 }
 
@@ -903,7 +904,7 @@ static void start_pthread(void* exec_ UNUSED) {
 
   //Add itself to list of threads in pcb
 
-  struct user_thread_list_elem* thread_elem = calloc(sizeof(struct user_thread_list_elem), 1);
+  struct user_thread_list_elem* thread_elem = malloc(sizeof(struct user_thread_list_elem));
   struct list_elem lst = {NULL, NULL};
   thread_elem->tid = t->tid;
   thread_elem->elem = lst;
@@ -913,6 +914,7 @@ static void start_pthread(void* exec_ UNUSED) {
 
   lock_acquire(&input->pcb->sherlock);
   list_push_back(&input->pcb->user_thread_list, &thread_elem->elem);
+  size_t listsize = list_size(&input->pcb->user_thread_list);
   lock_release(&input->pcb->sherlock);
 
   // push_to_stack(argc, argv, &if_);
@@ -960,35 +962,31 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
 tid_t pthread_join(tid_t tid UNUSED) {
-  /* Obtain the thread we want to join on and set joiner element*/
-  int val = TID_ERROR;
+  /* Obtain the thread we want to join on and set joiner elemnt*/
+  // if(tid == thread_current()->tid){
+  //     return TID_ERROR;
+  // }
   struct list_elem* element;
-  /* List of threads associated with the PCB*/
   struct list lst = thread_current()->pcb->user_thread_list;
-  /* Current thread's TID */
-  tid_t curr_tid = thread_current()->tid;
-
-  struct process* pcb = thread_current()->pcb; /* Current PCB */
-  lock_acquire(&pcb->sherlock);
+  lock_acquire(&thread_current()->pcb->sherlock);
+  struct user_thread_list_elem* u;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
-    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    u = list_entry(element, struct user_thread_list_elem, elem);
     if (u->tid == tid) {
       if (u->joined) {
-        lock_release(&pcb->sherlock);
-        return val;
+        lock_release(&thread_current()->pcb->sherlock);
+        return TID_ERROR;
       } else if (!u->exited) {
         u->joiner = thread_current();
         u->joined = true;
-        lock_release(&pcb->sherlock);
+        lock_release(&thread_current()->pcb->sherlock);
         intr_disable();
         thread_block();
         intr_enable();
-        val = tid;
-        return val;
+        return tid;
       } else {
-        lock_release(&pcb->sherlock);
-        val = tid;
-        return val;
+        lock_release(&thread_current()->pcb->sherlock);
+        return tid;
       }
     }
     if (element->next == NULL) {
@@ -996,8 +994,8 @@ tid_t pthread_join(tid_t tid UNUSED) {
     }
   }
 
-  lock_release(&pcb->sherlock);
-  return val;
+  lock_release(&thread_current()->pcb->sherlock);
+  return TID_ERROR;
 }
 
 /* Free the current thread's resources. Most resources will
@@ -1011,9 +1009,6 @@ tid_t pthread_join(tid_t tid UNUSED) {
    now, it does nothing. */
 void pthread_exit(void) {
   struct thread* t = thread_current();
-  if (t->pcb->main_thread == t) {
-    pthread_exit_main();
-  }
   lock_acquire(&thread_current()->pcb->sherlock);
   palloc_free_page(pagedir_get_page(t->pcb->pagedir, t->page));
   pagedir_clear_page(t->pcb->pagedir, t->page);
@@ -1021,13 +1016,14 @@ void pthread_exit(void) {
   /* Let waiter go! */
   struct list_elem* element;
   struct list lst = thread_current()->pcb->user_thread_list;
+  struct user_thread_list_elem* u;
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
-    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    u = list_entry(element, struct user_thread_list_elem, elem);
     if (u->tid == t->tid) {
+      u->exited = true;
       if (u->joined) {
         thread_unblock(u->joiner);
       }
-      u->exited = true;
       break;
     }
 
@@ -1050,18 +1046,19 @@ void pthread_exit(void) {
 void pthread_exit_main(void) {
   struct list_elem* element;
   struct list lst = thread_current()->pcb->user_thread_list;
+  struct user_thread_list_elem* u;
   lock_acquire(&thread_current()->pcb->sherlock);
   //wake up any threads waiting for the main
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
-    struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
+    u = list_entry(element, struct user_thread_list_elem, elem);
+    //size_t listsize = list_size(&lst);
     if (u->tid == thread_current()->tid) {
+      u->exited = true;
       if (u->joined) {
         thread_unblock(u->joiner);
         break;
       }
-      u->exited = true;
     }
-
     if (element->next == NULL) {
       break;
     }
@@ -1071,19 +1068,23 @@ void pthread_exit_main(void) {
     struct user_thread_list_elem* u = list_entry(element, struct user_thread_list_elem, elem);
     //join on unjoined threads
     if (u->tid != thread_current()->tid) {
-      if (u->joined == false) {
+      if (u->tid < 0) {
+        break;
+      }
+      if (u->joined != true && u->exited != true) {
         lock_release(&thread_current()->pcb->sherlock);
         pthread_join(u->tid);
         lock_acquire(&thread_current()->pcb->sherlock);
       }
-
-      if (element->next == NULL) {
-        break;
-      }
+    }
+    if (element->next == NULL) {
+      break;
     }
   }
+
   lock_release(&thread_current()->pcb->sherlock);
-  thread_exit();
+  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, 0);
+  //thread_exit();
   process_exit();
 }
 
@@ -1157,9 +1158,9 @@ bool user_lock_acquire(char* lock) {
         return success;
       }
       //lock_release(&thread_current()->pcb->sherlock);
-      lock_acquire(&lock_elem->lock);
+      bool success = lock_try_acquire(&lock_elem->lock);
       lock_release(&thread_current()->pcb->user_lock);
-      return true;
+      return success;
     }
     if (e->next == NULL) {
       lock_release(&thread_current()->pcb->user_lock);
