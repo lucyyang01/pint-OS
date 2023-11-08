@@ -64,7 +64,8 @@ void sema_down(struct semaphore* sema) {
   old_level = intr_disable();
   while (sema->value == 0) {
     if (active_sched_policy == SCHED_PRIO) {
-      list_insert_ordered(&sema->waiters, &thread_current()->elem, greater_list, greater_prio);
+      list_insert_ordered(&sema->waiters, &thread_current()->elem, greater_list,
+                          greater_prio_waiters);
     } else {
       list_push_back(&sema->waiters, &thread_current()->elem);
     }
@@ -106,13 +107,20 @@ void sema_up(struct semaphore* sema) {
   ASSERT(sema != NULL);
 
   old_level = intr_disable();
-  struct thread* t;
+  struct thread* t = NULL;
   if (!list_empty(&sema->waiters)) {
     struct list_elem* el = list_pop_front(&sema->waiters);
     t = list_entry(el, struct thread, elem);
     thread_unblock(t);
   }
   sema->value++;
+  if (active_sched_policy == SCHED_PRIO && t != NULL &&
+      t->effective > thread_current()->effective) {
+    if (intr_context())
+      intr_yield_on_return();
+    else
+      thread_yield();
+  }
   intr_set_level(old_level);
 }
 
@@ -223,11 +231,6 @@ void lock_release(struct lock* lock) {
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
   lock->holder = NULL;
-  // it means that we are never unblocking the waiting threads in lock_release
-  // for (struct list_elem* e = list_begin(&lock->semaphore.waiters); e != list_end(&lock->semaphore.waiters); e = list_next(e)) {
-  //   struct thread* t = list_entry(e, struct thread, elem);
-  //   thread_unblock(t);
-  // }
   sema_up(&lock->semaphore);
   if (active_sched_policy == SCHED_PRIO) {
     int max_ep = PRI_MIN;
@@ -247,6 +250,10 @@ void lock_release(struct lock* lock) {
       thread_current()->effective = thread_current()->priority;
     list_remove(&lock->elem);
     thread_try_yield();
+  }
+  if (active_sched_policy == SCHED_PRIO) {
+    list_remove(&lock->elem);
+    //thread_try_yield();
   }
 }
 

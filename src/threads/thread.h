@@ -192,5 +192,6 @@ bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_e
 bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
 void thread_donate_priority(struct thread* t, struct lock* lock);
 void thread_try_yield();
+bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
 
 #endif /* threads/thread.h */

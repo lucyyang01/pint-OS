@@ -82,6 +82,7 @@ bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, 
 static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2);
 static bool lock_greater_list(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2,
                               void* aux);
+bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
 
 /* Determines which scheduler the kernel should use.
    Controlled by the kernel command-line options
@@ -677,9 +678,16 @@ void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
 bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
   struct thread* t1 = list_entry(pq_elem1, struct thread, pq_elem);
   struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
-  //struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
-  // struct list_elem* next_highest = list_front(&priority_queue);
-  // struct thread* t2 = list_entry(next_highest, struct thread, pq_elem);
+  if (t1->effective >= t2->effective) {
+    return true;
+  }
+  return false;
+}
+
+/* Comparator to sort queue by priority. */
+bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
+  struct thread* t1 = list_entry(pq_elem1, struct thread, elem);
+  struct thread* t2 = list_entry(pq_elem2, struct thread, elem);
   if (t1->effective >= t2->effective) {
     return true;
   }
