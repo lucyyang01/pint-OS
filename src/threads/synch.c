@@ -63,7 +63,7 @@ void sema_down(struct semaphore* sema) {
 
   old_level = intr_disable();
   while (sema->value == 0) {
-    list_push_back(&sema->waiters, &thread_current()->elem);
+    list_insert_ordered(&sema->waiters, &thread_current()->elem, greater_list, greater_prio);
     thread_block();
   }
   sema->value--;
@@ -102,11 +102,25 @@ void sema_up(struct semaphore* sema) {
   ASSERT(sema != NULL);
 
   old_level = intr_disable();
-  if (!list_empty(&sema->waiters))
-    //list_sort(&sema->waiters, greater_list, greater_prio);
-    thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+  struct thread* t;
+  if (!list_empty(&sema->waiters)) {
+    struct list_elem* el = list_pop_front(&sema->waiters);
+    t = list_entry(el, struct thread, elem);
+    thread_unblock(t);
+  }
   sema->value++;
+  // if (t != NULL && thread_current()->effective < t->effective) {
+  //   if(intr_context())
+  //     intr_yield_on_return();
+  //   if(!intr_context())
+  //     thread_yield();
+  // }
+
+  // if (!list_empty(&sema->waiters)){
+  //   thread_yield();
+  // } //only yield if the thread's effective priori
   intr_set_level(old_level);
+  // if (t != NULL && thread_current()->effective <= t->effective) thread_yield();
 }
 
 static void sema_test_helper(void* sema_);
@@ -181,6 +195,7 @@ void lock_acquire(struct lock* lock) {
     thread_donate_priority(curr_holder, lock);
   }
   sema_down(&lock->semaphore);
+  list_push_front(&thread_current()->donor_list, &lock->elem);
   lock->holder = thread_current();
 }
 
@@ -210,9 +225,30 @@ bool lock_try_acquire(struct lock* lock) {
 void lock_release(struct lock* lock) {
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
-
   lock->holder = NULL;
+  // it means that we are never unblocking the waiting threads in lock_release
+  // for (struct list_elem* e = list_begin(&lock->semaphore.waiters); e != list_end(&lock->semaphore.waiters); e = list_next(e)) {
+  //   struct thread* t = list_entry(e, struct thread, elem);
+  //   thread_unblock(t);
+  // }
   sema_up(&lock->semaphore);
+  int max_ep = PRI_MIN;
+  for (struct list_elem* e = list_begin(&thread_current()->donor_list);
+       e != list_end(&thread_current()->donor_list); e = list_next(e)) {
+    struct lock* l = list_entry(e, struct lock, elem);
+    for (struct list_elem* e = list_begin(&l->semaphore.waiters);
+         e != list_end(&l->semaphore.waiters); e = list_next(e)) {
+      struct thread* t = list_entry(e, struct thread, elem);
+      if (max_ep < t->effective)
+        max_ep = t->effective;
+    }
+  }
+  if (max_ep > thread_current()->priority)
+    thread_current()->effective = max_ep;
+  else
+    thread_current()->effective = thread_current()->priority;
+  list_remove(&lock->elem);
+  thread_try_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false

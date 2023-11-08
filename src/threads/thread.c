@@ -345,6 +345,17 @@ void thread_yield(void) {
   intr_set_level(old_level);
 }
 
+void thread_try_yield() {
+  if (!list_empty(&priority_queue)) {
+    struct thread* cur = thread_current();
+    struct list_elem* e = list_front(&priority_queue);
+    struct thread* t = list_entry(e, struct thread, elem);
+    if (cur->effective < t->effective) {
+      thread_yield();
+    }
+  }
+}
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void thread_foreach(thread_action_func* func, void* aux) {
@@ -387,7 +398,7 @@ void thread_donate_priority(struct thread* t, struct lock* lock) {
   struct thread* current_t = thread_current();
   t->effective = thread_get_priority(); /* assumes only donating prios higher than t->effective */
   //insert thread into t's list of donors
-  list_insert_ordered(&t->donor_list, &lock->elem, lock_greater_list, lock_greater_prio);
+  //list_insert_ordered(&t->donor_list, &lock->elem, lock_greater_list, lock_greater_prio);
 
   // sort queue again
   list_sort(&priority_queue, greater_list, greater_prio);
@@ -501,7 +512,6 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
   list_init(&t->donor_list);
-
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
   intr_set_level(old_level);

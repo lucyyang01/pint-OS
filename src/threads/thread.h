@@ -112,7 +112,7 @@ struct thread {
   /* Priority Donation Variables */
   int effective;             /* Effective priority of thread */
   struct lock* donated_lock; /* Thread we donated priority to */
-  struct list donor_list;    /* List of locks held by threads who have donated to us */
+  struct list donor_list;    /* List of locks we hold (so we can find the donors) */
 
 #ifdef USERPROG
   /* Owned by process.c. */
