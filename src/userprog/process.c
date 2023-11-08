@@ -420,6 +420,60 @@ void process_exit(void) {
     NOT_REACHED();
   }
 
+  /*process_exit should have an algorithm that allows the exiting thread to kill other threads in a way that 
+  ensures that resources are not leaked. 
+  In the staff solution, this is done by waiting for the thread to trap back to userspace, and directing it to pthread_exit.
+  Don’t forget to wake any joining threads on the exiter. 
+  Don’t forget to free all resources acquired (list of join statuses, list of user locks, list of user semaphores)*/
+
+  //is_trap_from_userspace()
+  /*process_exit should arrange for one thread to become the designated exiter, 
+  have that thread wake its joiners, and wait for all other threads 
+  (including concurrent exiters) to die before proceeding. This can be done with a CV.*/
+  struct thread* designated_exiter = thread_current();
+  lock_acquire(&thread_current()->pcb->sherlock);
+  struct list_elem* element;
+  struct list lst = thread_current()->pcb->user_thread_list;
+  struct user_thread_list_elem* u;
+  //wake up any threads waiting for the main
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    u = list_entry(element, struct user_thread_list_elem, elem);
+    if (u->tid == designated_exiter->tid) {
+      u->exited = true;
+      if (u->joined && !u->exited) {
+        lock_release(&thread_current()->pcb->sherlock);
+        if (u->joiner != NULL) {
+          thread_unblock(u->joiner);
+        }
+        lock_acquire(&thread_current()->pcb->sherlock);
+        break;
+      }
+      break;
+    }
+    if (element->next == NULL) {
+      break;
+    }
+  }
+  // lock_release(&thread_current()->pcb->sherlock);
+  for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
+    u = list_entry(element, struct user_thread_list_elem, elem);
+    //join on unjoined threads
+    if (u->tid != thread_current()->tid) {
+      if (u->tid < 0) {
+        break;
+      }
+      if (u->joined != true && u->exited != true) {
+        lock_release(&thread_current()->pcb->sherlock);
+        pthread_join(u->tid);
+        lock_acquire(&thread_current()->pcb->sherlock);
+      }
+    }
+    if (element->next == NULL) {
+      break;
+    }
+  }
+  lock_release(&thread_current()->pcb->sherlock);
+
   struct process* parent = cur->pcb->parent;
   bool waiting = false;
 
@@ -479,49 +533,61 @@ void process_exit(void) {
   lock_release(&fdt->lock);
   free(cur->pcb->fileDescriptorTable);
 
-  /*process_exit should have an algorithm that allows the exiting thread to kill other threads in a way that 
-  ensures that resources are not leaked. 
-  In the staff solution, this is done by waiting for the thread to trap back to userspace, and directing it to pthread_exit.
-  Don’t forget to wake any joining threads on the exiter. 
-  Don’t forget to free all resources acquired (list of join statuses, list of user locks, list of user semaphores)*/
+  /*If you need to free() elements of the list then you need to be
+   more conservative.  Here's an alternate strategy that works
+   even in that case:
 
-  //is_trap_from_userspace()
-  /*process_exit should arrange for one thread to become the designated exiter, 
-  have that thread wake its joiners, and wait for all other threads 
-  (including concurrent exiters) to die before proceeding. This can be done with a CV.*/
-  // struct condition *designated_exit = {};
-  // cond_init(designated_exit);
+   while (!list_empty (&list))
+     {
+       struct list_elem *e = list_pop_front (&list);
+       ...do something with e...
+     }
+*/
 
   /* Free list of locks in PCB */
-  // lock_acquire(&cur->pcb->sherlock);
+  lock_acquire(&cur->pcb->sherlock);
   struct list lock_list = cur->pcb->user_lock_list;
   struct list_elem* e;
   struct list_elem* next_e;
   struct user_lock_list_elem* lock_elem;
 
-  // for (e = list_begin(&lock_list); e != list_end(&lock_list); e = next_e) {
-  //   if(e->next == NULL){
-  //     break;
-  //   }
-  //   next_e = list_next(e);
+  // while (!list_empty (&lock_list))
+  // {
+  //   e = list_pop_back(&lock_list);
   //   lock_elem = list_entry(e, struct user_lock_list_elem, elem);
-  //   list_remove(e);
   //   free(lock_elem);
-  // }
+  //}
+
+  for (e = list_begin(&lock_list); e != list_end(&lock_list); e = next_e) {
+    if (e->next == NULL) {
+      break;
+    }
+    next_e = list_next(e);
+    lock_elem = list_entry(e, struct user_lock_list_elem, elem);
+    list_remove(e);
+    free(lock_elem);
+  }
 
   //free semaphore list
-  // struct list sema_list = cur->pcb->user_semaphore_list;
-  // struct user_semaphore_list_elem* sema_elem;
+  struct list sema_list = cur->pcb->user_semaphore_list;
+  struct user_semaphore_list_elem* sema_elem;
 
-  // for (e = list_begin(&sema_list); e != list_end(&sema_list); e = next_e) {
-  //   if(e->next == NULL){
-  //     break;
+  //  while (!list_empty (&sema_list))
+  //   {
+  //     e = list_pop_front (&sema_list);
+  //     sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
+  //     free(sema_elem);
   //   }
-  //   next_e = list_next(e);
-  //   sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
-  //   list_remove(e);
-  //   free(lock_elem);
-  // }
+
+  for (e = list_begin(&sema_list); e != list_end(&sema_list); e = next_e) {
+    if (e->next == NULL) {
+      break;
+    }
+    next_e = list_next(e);
+    sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
+    list_remove(e);
+    free(sema_elem);
+  }
 
   //free thread list
   // struct list thread_list = cur->pcb->user_thread_list;
@@ -536,15 +602,7 @@ void process_exit(void) {
   //   list_remove(e);
   //   free(lock_elem);
   // }
-  //lock_release(&cur->pcb->sherlock);
-
-  // while (!list_empty(&lock_list)) {
-  //   struct list_elem* e = list_pop_front(&lock_list);
-  //   lock_elem = list_entry(e, struct user_lock_list_elem, elem);
-  //   free(lock_elem);
-  // }
-  // free(&lock_list);
-  // lock_release(&cur->pcb->sherlock);
+  lock_release(&cur->pcb->sherlock);
 
   /* Free the PCB of this process and kill this thread
      Avoid race where PCB is freed before t->pcb is set to NULL
