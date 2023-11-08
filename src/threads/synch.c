@@ -109,18 +109,7 @@ void sema_up(struct semaphore* sema) {
     thread_unblock(t);
   }
   sema->value++;
-  // if (t != NULL && thread_current()->effective < t->effective) {
-  //   if(intr_context())
-  //     intr_yield_on_return();
-  //   if(!intr_context())
-  //     thread_yield();
-  // }
-
-  // if (!list_empty(&sema->waiters)){
-  //   thread_yield();
-  // } //only yield if the thread's effective priori
   intr_set_level(old_level);
-  // if (t != NULL && thread_current()->effective <= t->effective) thread_yield();
 }
 
 static void sema_test_helper(void* sema_);
@@ -190,13 +179,17 @@ void lock_acquire(struct lock* lock) {
   ASSERT(!lock_held_by_current_thread(lock));
   //find lock's holder if it exists
   struct thread* curr_holder = lock->holder;
-  if (curr_holder != NULL) {
+  if (active_sched_policy == SCHED_PRIO && curr_holder != NULL) {
     //donate priority to the holder
     thread_donate_priority(curr_holder, lock);
   }
   sema_down(&lock->semaphore);
-  list_push_front(&thread_current()->donor_list, &lock->elem);
   lock->holder = thread_current();
+  if (active_sched_policy == SCHED_PRIO) {
+    if (&thread_current()->donor_list != NULL) {
+      list_push_front(&thread_current()->donor_list, &lock->elem);
+    }
+  }
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -232,23 +225,25 @@ void lock_release(struct lock* lock) {
   //   thread_unblock(t);
   // }
   sema_up(&lock->semaphore);
-  int max_ep = PRI_MIN;
-  for (struct list_elem* e = list_begin(&thread_current()->donor_list);
-       e != list_end(&thread_current()->donor_list); e = list_next(e)) {
-    struct lock* l = list_entry(e, struct lock, elem);
-    for (struct list_elem* e = list_begin(&l->semaphore.waiters);
-         e != list_end(&l->semaphore.waiters); e = list_next(e)) {
-      struct thread* t = list_entry(e, struct thread, elem);
-      if (max_ep < t->effective)
-        max_ep = t->effective;
+  if (active_sched_policy == SCHED_PRIO) {
+    int max_ep = PRI_MIN;
+    for (struct list_elem* e = list_begin(&thread_current()->donor_list);
+         e != list_end(&thread_current()->donor_list); e = list_next(e)) {
+      struct lock* l = list_entry(e, struct lock, elem);
+      for (struct list_elem* e = list_begin(&l->semaphore.waiters);
+           e != list_end(&l->semaphore.waiters); e = list_next(e)) {
+        struct thread* t = list_entry(e, struct thread, elem);
+        if (max_ep < t->effective)
+          max_ep = t->effective;
+      }
     }
+    if (max_ep > thread_current()->priority)
+      thread_current()->effective = max_ep;
+    else
+      thread_current()->effective = thread_current()->priority;
+    list_remove(&lock->elem);
+    thread_try_yield();
   }
-  if (max_ep > thread_current()->priority)
-    thread_current()->effective = max_ep;
-  else
-    thread_current()->effective = thread_current()->priority;
-  list_remove(&lock->elem);
-  thread_try_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false

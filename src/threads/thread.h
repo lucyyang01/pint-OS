@@ -107,7 +107,7 @@ struct thread {
   bool is_sleeping;    /*bool to determing is thread is alseep*/
 
   /* sychronization variable */
-  struct lock* lock;
+  struct lock lock;
 
   /* Priority Donation Variables */
   int effective;             /* Effective priority of thread */
@@ -190,5 +190,7 @@ void remove_sleepy(struct thread* t);
 struct list* get_sleepy(void);
 bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
 bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
+void thread_donate_priority(struct thread* t, struct lock* lock);
+void thread_try_yield();
 
 #endif /* threads/thread.h */
