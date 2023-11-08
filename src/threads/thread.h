@@ -100,18 +100,19 @@ struct thread {
   //we can either use elem (defined above) and the fifo list or we can have our own special pq elem and a priority queue
   //or we can use the list elem in thread and the pq?
   struct list_elem pq_elem;
+  //struct list_elem donor_elem;
 
   /*Sleeping variables*/
   int64_t wakeup_time; /*The time that the thread should wake up*/
   bool is_sleeping;    /*bool to determing is thread is alseep*/
 
   /* sychronization variable */
-  struct lock lock;
+  struct lock* lock;
 
   /* Priority Donation Variables */
-  int effective;            /* Effective priority of thread */
-  struct lock donated_lock; /* Thread we donated priority to */
-  struct list donor_list;   /* List of locks held by threads who have donated to us */
+  int effective;             /* Effective priority of thread */
+  struct lock* donated_lock; /* Thread we donated priority to */
+  struct list donor_list;    /* List of locks held by threads who have donated to us */
 
 #ifdef USERPROG
   /* Owned by process.c. */
@@ -137,13 +138,6 @@ enum sched_policy {
  *  "-sched-default", "-sched-fair", "-sched-mlfqs", "-sched-fifo"
  * Is equal to SCHED_FIFO by default. */
 extern enum sched_policy active_sched_policy;
-
-/* The element of the donor lock list. */
-struct dl_elem {
-  int holder_priority; /* stores the effective priority of the lock's holder */
-  struct lock* lock;   /* lock held by the holding thread */
-  struct list_elem elem;
-};
 
 void thread_init(void);
 void thread_start(void);
@@ -183,5 +177,7 @@ bool wait_less(const struct list_elem* a, const struct list_elem* b, void* aux U
 void add_sleepy(struct thread* t);
 void remove_sleepy(struct thread* t);
 struct list* get_sleepy(void);
+bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
+bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
 
 #endif /* threads/thread.h */

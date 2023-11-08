@@ -77,8 +77,8 @@ static struct thread* thread_schedule_prio(void);
 static struct thread* thread_schedule_fair(void);
 static struct thread* thread_schedule_mlfqs(void);
 static struct thread* thread_schedule_reserved(void);
-static bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
-static bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
+bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
+bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
 static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2);
 static bool lock_greater_list(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2,
                               void* aux);
@@ -387,24 +387,16 @@ void thread_donate_priority(struct thread* t, struct lock* lock) {
   struct thread* current_t = thread_current();
   t->effective = thread_get_priority(); /* assumes only donating prios higher than t->effective */
   //insert thread into t's list of donors
-  struct dl_elem* lock_el = malloc(sizeof(struct dl_elem));
-  lock_el->lock = lock;
-  lock_el->holder_priority = thread_get_priority();
-  list_insert_ordered(&t->donor_list, &lock_el->elem, lock_greater_list, lock_greater_prio);
+  list_insert_ordered(&t->donor_list, &lock->elem, lock_greater_list, lock_greater_prio);
 
-  //check pq contains t, if so we remove it
-  struct list_elem* e;
-  for (e = list_begin(&priority_queue); e != list_end(&priority_queue); e = list_next(e)) {
-    struct thread* curr_thread = list_entry(e, struct thread, pq_elem);
-    if (curr_thread == t) {
-      list_remove(e);
-      break;
-    }
-  }
-
-  //enqueue t
-  thread_enqueue(t);
+  // sort queue again
+  list_sort(&priority_queue, greater_list, greater_prio);
+  //thread_block();
   intr_set_level(old_level);
+  //list_insert_ordered(&lock->semaphore.waiters, &thread_current()->elem, greater_list, greater_prio);
+
+  //lock->holder = NULL;
+  //thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -537,11 +529,13 @@ static struct thread* thread_schedule_fifo(void) {
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
   //PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  enum intr_level old_level = intr_disable();
   if (!list_empty(&priority_queue)) {
     struct thread* t = list_entry(list_pop_front(&priority_queue), struct thread, pq_elem);
     return t;
   } else
     return idle_thread;
+  intr_set_level(old_level);
 }
 
 /* Fair priority scheduler */
@@ -671,19 +665,19 @@ struct list* get_sleepy() {
 void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
 
 /* Comparator to sort queue by priority. */
-static bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
+bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
   struct thread* t1 = list_entry(pq_elem1, struct thread, pq_elem);
   struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
   //struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
   // struct list_elem* next_highest = list_front(&priority_queue);
   // struct thread* t2 = list_entry(next_highest, struct thread, pq_elem);
-  if (t1->effective > t2->effective) {
+  if (t1->effective >= t2->effective) {
     return true;
   }
   return false;
 }
 
-static bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux) {
+bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux) {
   // struct thread* t1 = list_entry(pq_e1, struct thread, pq_elem);
   // struct thread* t2 = list_entry(pq_e2, struct thread, pq_elem);
   bool (*compare)(const struct list_elem* pq_e1, const struct list_elem* pq_e2) = aux;
@@ -694,9 +688,9 @@ static bool greater_list(const struct list_elem* pq_e1, const struct list_elem* 
 
 /* Comparator to sort list of locks by priority. */
 static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2) {
-  struct dl_elem* dl_e1 = list_entry(dl_elem1, struct dl_elem, elem);
-  struct dl_elem* dl_e2 = list_entry(dl_elem2, struct dl_elem, elem);
-  if (dl_e1->holder_priority > dl_e2->holder_priority) {
+  struct lock* l1 = list_entry(dl_elem1, struct lock, elem);
+  struct lock* l2 = list_entry(dl_elem2, struct lock, elem);
+  if (l1->holder->effective > l2->holder->effective) {
     return true;
   }
   return false;
@@ -704,8 +698,6 @@ static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct lis
 
 static bool lock_greater_list(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2,
                               void* aux) {
-  struct dl_elem* pq1 = list_entry(dl_elem1, struct dl_elem, elem);
-  struct dl_elem* pq2 = list_entry(dl_elem2, struct dl_elem, elem);
-  bool (*compare)(const struct dl_elem* pq1, const struct dl_elem* pq2) = aux;
-  return compare(pq1, pq2);
+  bool (*compare)(const struct dl_elem* dl_elem1, const struct dl_elem* pq2) = aux;
+  return compare(dl_elem1, dl_elem2);
 }
