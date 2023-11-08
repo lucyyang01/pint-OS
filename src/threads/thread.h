@@ -114,6 +114,8 @@ struct thread {
   struct lock* donated_lock; /* Thread we donated priority to */
   struct list donor_list;    /* List of locks we hold (so we can find the donors) */
 
+  // struct semaphore thread_sema_join;
+
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
@@ -121,6 +123,15 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+  uint8_t* page;  /* top of stack address in page directory */
+};
+
+struct user_thread_input {
+  struct stub_fun* stub;
+  struct pthread_fun* function;
+  void* args;
+  struct process* pcb; //original pcb that we need to add new threaad to
+  struct semaphore thread_sema_exec;
 };
 
 /* Types of scheduler that the user can request the kernel
