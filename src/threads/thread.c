@@ -376,8 +376,15 @@ void thread_set_priority(int new_priority) {
 
   //change base priority to the new priority
   t->priority = new_priority;
+  //t->effective = new_priority;
+
   if (new_priority > old_priority)
     t->effective = new_priority;
+
+  //lower the effective priority if thread has no donors
+  if (new_priority < t->effective && list_empty(&t->donor_list)) {
+    t->effective = new_priority;
+  }
 
   //check if next highest prio thread in q has prio > new effective prio
   if (!list_empty(&priority_queue)) {
