@@ -261,10 +261,6 @@ static void thread_enqueue(struct thread* t) {
     list_push_back(&fifo_ready_list, &t->elem);
   else if (active_sched_policy == SCHED_PRIO) {
     list_insert_ordered(&priority_queue, &t->pq_elem, greater_list, greater_prio);
-    // if (t->effective > thread_current()->effective){
-    //   thread_yield();
-    // }
-    // schedule();
 
   } else
     PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
@@ -349,7 +345,7 @@ void thread_try_yield() {
   if (!list_empty(&priority_queue)) {
     struct thread* cur = thread_current();
     struct list_elem* e = list_front(&priority_queue);
-    struct thread* t = list_entry(e, struct thread, elem);
+    struct thread* t = list_entry(e, struct thread, pq_elem);
     if (cur->effective < t->effective) {
       thread_yield();
     }
@@ -379,7 +375,8 @@ void thread_set_priority(int new_priority) {
 
   //change base priority to the new priority
   t->priority = new_priority;
-  t->effective = new_priority;
+  if (new_priority > old_priority)
+    t->effective = new_priority;
 
   //check if next highest prio thread in q has prio > new effective prio
   if (!list_empty(&priority_queue)) {
@@ -401,7 +398,7 @@ void thread_donate_priority(struct thread* t, struct lock* lock) {
   //list_insert_ordered(&t->donor_list, &lock->elem, lock_greater_list, lock_greater_prio);
 
   // sort queue again
-  list_sort(&priority_queue, greater_list, greater_prio);
+  //list_sort(&priority_queue, greater_list, greater_prio);
   //thread_block();
   intr_set_level(old_level);
   //list_insert_ordered(&lock->semaphore.waiters, &thread_current()->elem, greater_list, greater_prio);
