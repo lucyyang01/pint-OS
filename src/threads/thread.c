@@ -394,17 +394,11 @@ void thread_donate_priority(struct thread* t, struct lock* lock) {
   enum intr_level old_level = intr_disable();
   struct thread* current_t = thread_current();
   t->effective = thread_get_priority(); /* assumes only donating prios higher than t->effective */
-  //insert thread into t's list of donors
-  //list_insert_ordered(&t->donor_list, &lock->elem, lock_greater_list, lock_greater_prio);
-
-  // sort queue again
-  //list_sort(&priority_queue, greater_list, greater_prio);
-  //thread_block();
+  thread_current()->donated_lock = lock;
+  if (t->donated_lock != NULL) {
+    thread_donate_priority(t->donated_lock->holder, t->donated_lock);
+  }
   intr_set_level(old_level);
-  //list_insert_ordered(&lock->semaphore.waiters, &thread_current()->elem, greater_list, greater_prio);
-
-  //lock->holder = NULL;
-  //thread_yield();
 }
 
 /* Returns the current thread's priority. */
