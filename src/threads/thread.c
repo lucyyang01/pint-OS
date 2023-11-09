@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+// #include "threads/malloc.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -23,6 +24,9 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
+
+/* List of threads in THREAD_READY state ordered by priority. */
+static struct list priority_queue;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -59,11 +63,10 @@ static unsigned thread_ticks; /* # of timer ticks since last yield. */
 static void init_thread(struct thread*, const char* name, int priority);
 static bool is_thread(struct thread*) UNUSED;
 static void* alloc_frame(struct thread*, size_t size);
-static void schedule(void);
 static void thread_enqueue(struct thread* t);
 static tid_t allocate_tid(void);
 void thread_switch_tail(struct thread* prev);
-
+static void schedule(void);
 static void kernel_thread(thread_func*, void* aux);
 static void idle(void* aux UNUSED);
 static struct thread* running_thread(void);
@@ -74,6 +77,12 @@ static struct thread* thread_schedule_prio(void);
 static struct thread* thread_schedule_fair(void);
 static struct thread* thread_schedule_mlfqs(void);
 static struct thread* thread_schedule_reserved(void);
+bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
+bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
+static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2);
+static bool lock_greater_list(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2,
+                              void* aux);
+bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
 
 /* Determines which scheduler the kernel should use.
    Controlled by the kernel command-line options
@@ -111,6 +120,8 @@ void thread_init(void) {
 
   lock_init(&tid_lock);
   list_init(&fifo_ready_list);
+  /*initialize priority queue*/
+  list_init(&priority_queue);
   list_init(&all_list);
   list_init(&sleep_list);
 
@@ -194,6 +205,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   /* Initialize thread. */
   init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
+  lock_init(&t->lock);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame(t, sizeof *kf);
@@ -218,7 +230,9 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   asm("fsave (%0); fninit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&sf->fpu), "g"(&fpu_buf));
   /* Add to run queue. */
   thread_unblock(t);
-
+  if (thread_current()->effective < priority) {
+    thread_yield();
+  }
   return tid;
 }
 
@@ -241,12 +255,16 @@ void thread_block(void) {
    
    This function must be called with interrupts turned off. */
 static void thread_enqueue(struct thread* t) {
+
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
   if (active_sched_policy == SCHED_FIFO)
     list_push_back(&fifo_ready_list, &t->elem);
-  else
+  else if (active_sched_policy == SCHED_PRIO) {
+    list_insert_ordered(&priority_queue, &t->pq_elem, greater_list, greater_prio);
+
+  } else
     PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
 }
 
@@ -259,6 +277,7 @@ static void thread_enqueue(struct thread* t) {
    it may expect that it can atomically unblock a thread and
    update other data. */
 void thread_unblock(struct thread* t) {
+
   enum intr_level old_level;
 
   ASSERT(is_thread(t));
@@ -324,6 +343,17 @@ void thread_yield(void) {
   intr_set_level(old_level);
 }
 
+void thread_try_yield() {
+  if (!list_empty(&priority_queue)) {
+    struct thread* cur = thread_current();
+    struct list_elem* e = list_front(&priority_queue);
+    struct thread* t = list_entry(e, struct thread, pq_elem);
+    if (cur->effective < t->effective) {
+      thread_yield();
+    }
+  }
+}
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void thread_foreach(thread_action_func* func, void* aux) {
@@ -338,10 +368,50 @@ void thread_foreach(thread_action_func* func, void* aux) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
+void thread_set_priority(int new_priority) {
+  enum intr_level old_level = intr_disable();
+  struct thread* t = thread_current();
+
+  //get old effective priority
+  int old_priority = t->effective;
+
+  //change base priority to the new priority
+  t->priority = new_priority;
+  //t->effective = new_priority;
+
+  if (new_priority > old_priority)
+    t->effective = new_priority;
+
+  //lower the effective priority if thread has no donors
+  if (new_priority < t->effective && list_empty(&t->donor_list)) {
+    t->effective = new_priority;
+  }
+
+  //check if next highest prio thread in q has prio > new effective prio
+  if (!list_empty(&priority_queue)) {
+    struct list_elem* next_highest = list_front(&priority_queue);
+    struct thread* next_highest_t = list_entry(next_highest, struct thread, pq_elem);
+    if (next_highest_t->effective > t->effective)
+      thread_yield();
+  }
+
+  intr_set_level(old_level);
+}
+
+/* Helper method for donating priority. The current thread donates to thread t. */
+void thread_donate_priority(struct thread* t, struct lock* lock) {
+  enum intr_level old_level = intr_disable();
+  struct thread* current_t = thread_current();
+  t->effective = thread_get_priority(); /* assumes only donating prios higher than t->effective */
+  thread_current()->donated_lock = lock;
+  if (t->donated_lock != NULL) {
+    thread_donate_priority(t->donated_lock->holder, t->donated_lock);
+  }
+  intr_set_level(old_level);
+}
 
 /* Returns the current thread's priority. */
-int thread_get_priority(void) { return thread_current()->priority; }
+int thread_get_priority(void) { return thread_current()->effective; }
 
 /* Sets the current thread's nice value to NICE. */
 void thread_set_nice(int nice UNUSED) { /* Not yet implemented. */
@@ -438,9 +508,10 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t*)t + PGSIZE;
   t->priority = priority;
+  t->effective = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
-
+  list_init(&t->donor_list);
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
   intr_set_level(old_level);
@@ -467,7 +538,14 @@ static struct thread* thread_schedule_fifo(void) {
 
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  //PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  enum intr_level old_level = intr_disable();
+  if (!list_empty(&priority_queue)) {
+    struct thread* t = list_entry(list_pop_front(&priority_queue), struct thread, pq_elem);
+    return t;
+  } else
+    return idle_thread;
+  intr_set_level(old_level);
 }
 
 /* Fair priority scheduler */
@@ -595,3 +673,48 @@ struct list* get_sleepy() {
   return &sleep_list;
 }
 void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
+
+/* Comparator to sort queue by priority. */
+bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
+  struct thread* t1 = list_entry(pq_elem1, struct thread, pq_elem);
+  struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
+  if (t1->effective >= t2->effective) {
+    return true;
+  }
+  return false;
+}
+
+/* Comparator to sort queue by priority. */
+bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
+  struct thread* t1 = list_entry(pq_elem1, struct thread, sema_elem);
+  struct thread* t2 = list_entry(pq_elem2, struct thread, sema_elem);
+  if (t1->effective >= t2->effective) {
+    return true;
+  }
+  return false;
+}
+
+bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux) {
+  // struct thread* t1 = list_entry(pq_e1, struct thread, pq_elem);
+  // struct thread* t2 = list_entry(pq_e2, struct thread, pq_elem);
+  bool (*compare)(const struct list_elem* pq_e1, const struct list_elem* pq_e2) = aux;
+  return compare(pq_e1, pq_e2);
+}
+
+//CHECK to make sure we can still maintain the list of locks by priority
+
+/* Comparator to sort list of locks by priority. */
+static bool lock_greater_prio(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2) {
+  struct lock* l1 = list_entry(dl_elem1, struct lock, elem);
+  struct lock* l2 = list_entry(dl_elem2, struct lock, elem);
+  if (l1->holder->effective > l2->holder->effective) {
+    return true;
+  }
+  return false;
+}
+
+static bool lock_greater_list(const struct list_elem* dl_elem1, const struct list_elem* dl_elem2,
+                              void* aux) {
+  bool (*compare)(const struct dl_elem* dl_elem1, const struct dl_elem* pq2) = aux;
+  return compare(dl_elem1, dl_elem2);
+}

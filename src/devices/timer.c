@@ -151,8 +151,9 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
   // }
   struct list_elem* e;
   struct list* sleepy_list = get_sleepy();
+  struct thread* t = NULL;
   for (e = list_begin(sleepy_list); e != list_end(sleepy_list); e = list_next(e)) {
-    struct thread* t = list_entry(e, struct thread, wait_elem);
+    t = list_entry(e, struct thread, wait_elem);
     if (t->is_sleeping == true && timer_ticks() >= t->wakeup_time) {
       thread_unblock(t);
       t->is_sleeping = false;
@@ -162,7 +163,14 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
     //   break;
     // }
   }
-  intr_yield_on_return();
+  /*TODO: Yield on return if the woken threads is higher priority*/
+  if (active_sched_policy == SCHED_PRIO && t != NULL &&
+      t->effective > thread_current()->effective) {
+    if (intr_context())
+      intr_yield_on_return();
+    else
+      thread_yield();
+  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

@@ -20,6 +20,7 @@ void sema_self_test(void);
 struct lock {
   struct thread* holder;      /* Thread holding lock (for debugging). */
   struct semaphore semaphore; /* Binary semaphore controlling access. */
+  struct list_elem elem;
 };
 
 void lock_init(struct lock*);
@@ -51,6 +52,8 @@ struct rw_lock {
 void rw_lock_init(struct rw_lock*);
 void rw_lock_acquire(struct rw_lock*, bool reader);
 void rw_lock_release(struct rw_lock*, bool reader);
+static bool cond_greater_prio(const struct list_elem* el1, const struct list_elem* el2);
+bool cond_greater_list(const struct list_elem* sem_e1, const struct list_elem* sem_e2, void* aux);
 
 /* Optimization barrier.
 

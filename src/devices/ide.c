@@ -452,6 +452,7 @@ static void interrupt_handler(struct intr_frame* f) {
       if (c->expecting_interrupt) {
         inb(reg_status(c));           /* Acknowledge interrupt. */
         sema_up(&c->completion_wait); /* Wake up waiter. */
+        //intr_yield_on_return();
       } else
         printf("%s: unexpected interrupt\n", c->name);
       return;

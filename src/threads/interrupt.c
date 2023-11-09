@@ -320,6 +320,15 @@ void intr_handler(struct intr_frame* frame) {
   bool external;
   intr_handler_func* handler;
 
+  // if (!is_trap_from_userspace(frame)) {
+  //   /* trap to the OS was from kernelspace */
+  //   //TODO
+  //   printf("KERNEL TRAPP");
+  // }
+  // else {
+  //   printf("USER TRAPP");
+  // }
+
   /* External interrupts are special.
      We only handle one at a time (so interrupts must be off)
      and they need to be acknowledged on the PIC (see below).
@@ -328,7 +337,6 @@ void intr_handler(struct intr_frame* frame) {
   if (external) {
     ASSERT(intr_get_level() == INTR_OFF);
     ASSERT(!intr_context());
-
     in_external_intr = true;
     yield_on_return = false;
   }
