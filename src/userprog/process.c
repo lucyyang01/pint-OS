@@ -20,8 +20,6 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-// #include "lib/user/pthread.h"
-
 char* strdup(const char* str);
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -80,7 +78,6 @@ void userprog_init(void) {
   list_init(&t->pcb->user_thread_list);
   list_init(&t->pcb->user_lock_list);
   list_init(&t->pcb->user_semaphore_list);
-  // bool x = list_empty(&t->pcb->user_lock_list);
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
@@ -88,8 +85,6 @@ void userprog_init(void) {
   t->pcb->pid = t->tid;
 
   t->pcb->exit_code = -1;
-
-  //TODO: Do we need  to initialize the file descriptor list here?
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
@@ -108,7 +103,6 @@ void push_to_stack(size_t argc, char* argv[], struct intr_frame* if_) {
     memcpy(if_->esp, argv[i], strlen(argv[i]) + 1);
     free(argv[i]);
   }
-  // bool x = list_empty(&thread_current()->pcb->user_lock_list);
 
   /* Calculate total size that will be pushed after alignment. */
   int total_size_to_push = (argc + 1) * sizeof(char*) /* argv addresses and null sentinel */
@@ -188,7 +182,6 @@ pid_t process_execute(const char* file_name) {
 
     free(input);
   }
-  // bool x = list_empty(&thread_current()->pcb->user_lock_list);
   return tid;
 }
 
@@ -238,7 +231,6 @@ static void start_process(void* i) {
     list_init(&t->pcb->user_thread_list);
     list_init(&t->pcb->user_lock_list);
     list_init(&t->pcb->user_semaphore_list);
-    // bool x = list_empty(&t->pcb->user_lock_list);
 
     /* Reference Count*/
     t->pcb->ref_count = 2;
@@ -409,6 +401,9 @@ void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
+  lock_acquire(&thread_current()->pcb->sherlock);
+  cur->pcb->process_exiting = true;
+  lock_release(&thread_current()->pcb->sherlock);
   /* Close file if it exists */
   if (cur->pcb->f != NULL) {
     file_close(cur->pcb->f);
@@ -426,7 +421,6 @@ void process_exit(void) {
   Don’t forget to wake any joining threads on the exiter. 
   Don’t forget to free all resources acquired (list of join statuses, list of user locks, list of user semaphores)*/
 
-  //is_trap_from_userspace()
   /*process_exit should arrange for one thread to become the designated exiter, 
   have that thread wake its joiners, and wait for all other threads 
   (including concurrent exiters) to die before proceeding. This can be done with a CV.*/
@@ -454,7 +448,6 @@ void process_exit(void) {
       break;
     }
   }
-  // lock_release(&thread_current()->pcb->sherlock);
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     u = list_entry(element, struct user_thread_list_elem, elem);
     //join on unjoined threads
@@ -533,30 +526,12 @@ void process_exit(void) {
   lock_release(&fdt->lock);
   free(cur->pcb->fileDescriptorTable);
 
-  /*If you need to free() elements of the list then you need to be
-   more conservative.  Here's an alternate strategy that works
-   even in that case:
-
-   while (!list_empty (&list))
-     {
-       struct list_elem *e = list_pop_front (&list);
-       ...do something with e...
-     }
-*/
-
   /* Free list of locks in PCB */
   lock_acquire(&cur->pcb->sherlock);
   struct list lock_list = cur->pcb->user_lock_list;
   struct list_elem* e;
   struct list_elem* next_e;
   struct user_lock_list_elem* lock_elem;
-
-  // while (!list_empty (&lock_list))
-  // {
-  //   e = list_pop_back(&lock_list);
-  //   lock_elem = list_entry(e, struct user_lock_list_elem, elem);
-  //   free(lock_elem);
-  //}
 
   for (e = list_begin(&lock_list); e != list_end(&lock_list); e = next_e) {
     if (e->next == NULL) {
@@ -572,13 +547,6 @@ void process_exit(void) {
   struct list sema_list = cur->pcb->user_semaphore_list;
   struct user_semaphore_list_elem* sema_elem;
 
-  //  while (!list_empty (&sema_list))
-  //   {
-  //     e = list_pop_front (&sema_list);
-  //     sema_elem = list_entry(e, struct user_semaphore_list_elem, elem);
-  //     free(sema_elem);
-  //   }
-
   for (e = list_begin(&sema_list); e != list_end(&sema_list); e = next_e) {
     if (e->next == NULL) {
       break;
@@ -589,19 +557,6 @@ void process_exit(void) {
     free(sema_elem);
   }
 
-  //free thread list
-  // struct list thread_list = cur->pcb->user_thread_list;
-  // struct user_thread_list_elem* thread_elem;
-
-  // for (e = list_begin(&thread_list); e != list_end(&thread_list); e = next_e) {
-  //   if(e->next == NULL){
-  //     break;
-  //   }
-  //   next_e = list_next(e);
-  //   thread_elem = list_entry(e, struct user_semaphore_list_elem, elem);
-  //   list_remove(e);
-  //   free(lock_elem);
-  // }
   lock_release(&cur->pcb->sherlock);
 
   /* Free the PCB of this process and kill this thread
@@ -792,8 +747,6 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  // file_allow_write(file);
-  //file_close(file);
   return success;
 }
 
@@ -952,7 +905,6 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
   bool success = false;
   struct thread* t = thread_current();
 
-  // TODO Keep track of how many pages have been installed
   lock_acquire(&t->pcb->authorlock);
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
@@ -980,7 +932,6 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED, struct user_thre
 
   *esp = *esp - 4;
   memcpy(*esp, &input->function, 4);
-  // *(if_.esp) = input->function;
 
   /* Push the rip*/
   *esp = *esp - 4;
@@ -1027,9 +978,6 @@ static void start_pthread(void* exec_ UNUSED) {
   list_push_front(&input->pcb->user_thread_list, &thread_elem->elem);
   size_t listsize = list_size(&input->pcb->user_thread_list);
   lock_release(&input->pcb->sherlock);
-
-  // push_to_stack(argc, argv, &if_);
-
   sema_up(&input->thread_sema_exec);
 
   asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
@@ -1046,6 +994,9 @@ static void start_pthread(void* exec_ UNUSED) {
    should be similar to process_execute (). For now, it does nothing.
    */
 tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) {
+  if (tf == NULL) {
+    return TID_ERROR;
+  }
   struct user_thread_input* input = malloc(sizeof(struct user_thread_input));
   input->function = tf;
   input->args = arg;
@@ -1074,9 +1025,6 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
    now, it does nothing. */
 tid_t pthread_join(tid_t tid UNUSED) {
   /* Obtain the thread we want to join on and set joiner elemnt*/
-  // if(tid == thread_current()->tid){
-  //     return TID_ERROR;
-  // }
   struct list_elem* element;
   struct list lst = thread_current()->pcb->user_thread_list;
   lock_acquire(&thread_current()->pcb->sherlock);
@@ -1162,7 +1110,6 @@ void pthread_exit_main(void) {
   //wake up any threads waiting for the main
   for (element = list_begin(&lst); element != list_end(&lst); element = list_next(element)) {
     u = list_entry(element, struct user_thread_list_elem, elem);
-    //size_t listsize = list_size(&lst);
     if (u->tid == thread_current()->tid) {
       u->exited = true;
       if (u->joined) {
@@ -1197,7 +1144,6 @@ void pthread_exit_main(void) {
   lock_release(&thread_current()->pcb->sherlock);
   thread_current()->pcb->exit_code = 0;
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, 0);
-  //thread_exit();
   process_exit();
 }
 
@@ -1239,8 +1185,6 @@ bool user_lock_init(char* lock) {
   }
   lock_init(&new_lock->lock);
   new_lock->lock_id = lock;
-  // struct list_elem lst = {NULL, NULL};
-  // new_lock->elem = lst;
 
   /* Insert new lock into the list */
   lock_acquire(&thread_current()->pcb->sherlock);
@@ -1260,7 +1204,6 @@ bool user_lock_acquire(char* lock) {
   struct list_elem* e;
   struct user_lock_list_elem* lock_elem;
   bool success = false;
-  // bool x = list_empty(&lock_list);
   e = list_end(&lock_list);
 
   for (e = list_begin(&lock_list); !list_empty(&lock_list) && e != list_end(&lock_list);
@@ -1270,9 +1213,9 @@ bool user_lock_acquire(char* lock) {
       if (lock_held_by_current_thread(&lock_elem->lock)) {
         return success;
       }
-      //lock_release(&thread_current()->pcb->sherlock);
-      bool success = lock_try_acquire(&lock_elem->lock);
       lock_release(&thread_current()->pcb->user_lock);
+      lock_acquire(&lock_elem->lock);
+      success = true;
       return success;
     }
     if (e->next == NULL) {
