@@ -1049,6 +1049,9 @@ static void start_pthread(void* exec_ UNUSED) {
    should be similar to process_execute (). For now, it does nothing.
    */
 tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) {
+  if (tf == NULL) {
+    return TID_ERROR;
+  }
   struct user_thread_input* input = malloc(sizeof(struct user_thread_input));
   input->function = tf;
   input->args = arg;
