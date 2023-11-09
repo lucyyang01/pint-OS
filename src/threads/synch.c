@@ -197,7 +197,8 @@ void lock_acquire(struct lock* lock) {
   ASSERT(!lock_held_by_current_thread(lock));
   //find lock's holder if it exists
   struct thread* curr_holder = lock->holder;
-  if (active_sched_policy == SCHED_PRIO && curr_holder != NULL) {
+  if (active_sched_policy == SCHED_PRIO && curr_holder != NULL &&
+      thread_current()->effective > curr_holder->effective) {
     //donate priority to the holder
     thread_donate_priority(curr_holder, lock);
   }
@@ -238,8 +239,10 @@ void lock_release(struct lock* lock) {
   ASSERT(lock_held_by_current_thread(lock));
   lock->holder = NULL;
   sema_up(&lock->semaphore);
-  if (active_sched_policy == SCHED_PRIO) {
+  if (active_sched_policy == SCHED_PRIO && !list_empty(&thread_current()->donor_list)) {
+    list_remove(&lock->elem);
     int max_ep = PRI_MIN;
+    // find max effective priority of all donors
     for (struct list_elem* e = list_begin(&thread_current()->donor_list);
          e != list_end(&thread_current()->donor_list); e = list_next(e)) {
       struct lock* l = list_entry(e, struct lock, elem);
@@ -254,13 +257,10 @@ void lock_release(struct lock* lock) {
       thread_current()->effective = max_ep;
     else
       thread_current()->effective = thread_current()->priority;
-    list_remove(&lock->elem);
     thread_try_yield();
   }
-  if (active_sched_policy == SCHED_PRIO) {
-    list_remove(&lock->elem);
-    //thread_try_yield();
-  }
+  //thread calls lock release, we reset thread's effective prio, but is donating to a thread
+  //will the thread thread1 donates to receive the changed priority
 }
 
 /* Returns true if the current thread holds LOCK, false

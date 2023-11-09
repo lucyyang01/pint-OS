@@ -345,6 +345,7 @@ void thread_yield(void) {
 
 void thread_try_yield() {
   if (!list_empty(&priority_queue)) {
+    list_sort(&priority_queue, greater_list, greater_prio);
     struct thread* cur = thread_current();
     struct list_elem* e = list_front(&priority_queue);
     struct thread* t = list_entry(e, struct thread, pq_elem);
@@ -507,6 +508,7 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->status = THREAD_BLOCKED;
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t*)t + PGSIZE;
+  t->donated_lock = NULL;
   t->priority = priority;
   t->effective = priority;
   t->pcb = NULL;
@@ -678,7 +680,7 @@ void remove_sleepy(struct thread* t) { list_remove(&t->wait_elem); }
 bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
   struct thread* t1 = list_entry(pq_elem1, struct thread, pq_elem);
   struct thread* t2 = list_entry(pq_elem2, struct thread, pq_elem);
-  if (t1->effective >= t2->effective) {
+  if (t1->effective > t2->effective) {
     return true;
   }
   return false;
@@ -688,7 +690,7 @@ bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_e
 bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
   struct thread* t1 = list_entry(pq_elem1, struct thread, sema_elem);
   struct thread* t2 = list_entry(pq_elem2, struct thread, sema_elem);
-  if (t1->effective >= t2->effective) {
+  if (t1->effective > t2->effective) {
     return true;
   }
   return false;
