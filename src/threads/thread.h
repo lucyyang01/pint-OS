@@ -96,6 +96,9 @@ struct thread {
   /*List element for wait list*/
   struct list_elem wait_elem;
 
+  /* List element for semaphores. */
+  struct list_elem sema_elem;
+
   /* List element for priority queue*/
   //we can either use elem (defined above) and the fifo list or we can have our own special pq elem and a priority queue
   //or we can use the list elem in thread and the pq?

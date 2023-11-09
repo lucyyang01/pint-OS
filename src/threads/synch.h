@@ -52,6 +52,8 @@ struct rw_lock {
 void rw_lock_init(struct rw_lock*);
 void rw_lock_acquire(struct rw_lock*, bool reader);
 void rw_lock_release(struct rw_lock*, bool reader);
+static bool cond_greater_prio(const struct list_elem* el1, const struct list_elem* el2);
+bool cond_greater_list(const struct list_elem* sem_e1, const struct list_elem* sem_e2, void* aux);
 
 /* Optimization barrier.
 

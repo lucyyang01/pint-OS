@@ -686,8 +686,8 @@ bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_e
 
 /* Comparator to sort queue by priority. */
 bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2) {
-  struct thread* t1 = list_entry(pq_elem1, struct thread, elem);
-  struct thread* t2 = list_entry(pq_elem2, struct thread, elem);
+  struct thread* t1 = list_entry(pq_elem1, struct thread, sema_elem);
+  struct thread* t2 = list_entry(pq_elem2, struct thread, sema_elem);
   if (t1->effective >= t2->effective) {
     return true;
   }
