@@ -259,8 +259,6 @@ void lock_release(struct lock* lock) {
       thread_current()->effective = thread_current()->priority;
     thread_try_yield();
   }
-  //thread calls lock release, we reset thread's effective prio, but is donating to a thread
-  //will the thread thread1 donates to receive the changed priority
 }
 
 /* Returns true if the current thread holds LOCK, false

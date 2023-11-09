@@ -100,10 +100,7 @@ struct thread {
   struct list_elem sema_elem;
 
   /* List element for priority queue*/
-  //we can either use elem (defined above) and the fifo list or we can have our own special pq elem and a priority queue
-  //or we can use the list elem in thread and the pq?
   struct list_elem pq_elem;
-  //struct list_elem donor_elem;
 
   /*Sleeping variables*/
   int64_t wakeup_time; /*The time that the thread should wake up*/
@@ -116,8 +113,6 @@ struct thread {
   int effective;             /* Effective priority of thread */
   struct lock* donated_lock; /* Thread we donated priority to */
   struct list donor_list;    /* List of locks we hold (so we can find the donors) */
-
-  // struct semaphore thread_sema_join;
 
 #ifdef USERPROG
   /* Owned by process.c. */

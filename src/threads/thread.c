@@ -120,6 +120,7 @@ void thread_init(void) {
 
   lock_init(&tid_lock);
   list_init(&fifo_ready_list);
+
   /*initialize priority queue*/
   list_init(&priority_queue);
   list_init(&all_list);
@@ -224,8 +225,6 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   // 1 for interrupt frame in start_process
 
-  // setp up fpu
-  // store kernel fpu somewhere and // svae. init, save, resotre
   char fpu_buf[108];
   asm("fsave (%0); fninit; fsave (%1); frstor (%2)" ::"g"(&fpu_buf), "g"(&sf->fpu), "g"(&fpu_buf));
   /* Add to run queue. */
@@ -378,7 +377,6 @@ void thread_set_priority(int new_priority) {
 
   //change base priority to the new priority
   t->priority = new_priority;
-  //t->effective = new_priority;
 
   if (new_priority > old_priority)
     t->effective = new_priority;
@@ -403,7 +401,7 @@ void thread_set_priority(int new_priority) {
 void thread_donate_priority(struct thread* t, struct lock* lock) {
   enum intr_level old_level = intr_disable();
   struct thread* current_t = thread_current();
-  t->effective = thread_get_priority(); /* assumes only donating prios higher than t->effective */
+  t->effective = thread_get_priority();
   thread_current()->donated_lock = lock;
   if (t->donated_lock != NULL) {
     thread_donate_priority(t->donated_lock->holder, lock);
