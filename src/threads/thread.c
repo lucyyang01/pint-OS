@@ -406,7 +406,7 @@ void thread_donate_priority(struct thread* t, struct lock* lock) {
   t->effective = thread_get_priority(); /* assumes only donating prios higher than t->effective */
   thread_current()->donated_lock = lock;
   if (t->donated_lock != NULL) {
-    thread_donate_priority(t->donated_lock->holder, t->donated_lock);
+    thread_donate_priority(t->donated_lock->holder, lock);
   }
   intr_set_level(old_level);
 }
