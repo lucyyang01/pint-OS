@@ -44,6 +44,7 @@ struct process {
   int exit_code;
   pid_t pid;
   bool waited;
+  bool process_exiting;
   struct file* f;
   struct list user_thread_list;
   struct list user_lock_list; /* list of locks held by a process */

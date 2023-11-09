@@ -409,6 +409,9 @@ void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
 
+  lock_acquire(&thread_current()->pcb->sherlock);
+  cur->pcb->process_exiting = true;
+  lock_release(&thread_current()->pcb->sherlock);
   /* Close file if it exists */
   if (cur->pcb->f != NULL) {
     file_close(cur->pcb->f);
@@ -1271,8 +1274,9 @@ bool user_lock_acquire(char* lock) {
         return success;
       }
       //lock_release(&thread_current()->pcb->sherlock);
-      bool success = lock_try_acquire(&lock_elem->lock);
       lock_release(&thread_current()->pcb->user_lock);
+      lock_acquire(&lock_elem->lock);
+      success = true;
       return success;
     }
     if (e->next == NULL) {
