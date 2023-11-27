@@ -7,7 +7,6 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-// #include "threads/thread.c"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -80,21 +79,8 @@ void timer_sleep(int64_t ticks) {
   int64_t start = timer_ticks();
 
   ASSERT(intr_get_level() == INTR_ON);
-  // while (timer_elapsed(start) < ticks)
-  //   thread_yield();
-
-  /* Store information in struct thread in order to 
-  determine when the thread can wake up. */
-  intr_disable();
-  struct thread* t = thread_current();
-  // lock_acquire(&t->lock);
-  t->wakeup_time = start + ticks;
-  t->is_sleeping = true;
-  // lock_release(&t->lock);
-
-  add_sleepy(t);
-  thread_block();
-  intr_enable();
+  while (timer_elapsed(start) < ticks)
+    thread_yield();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -143,34 +129,6 @@ void timer_print_stats(void) { printf("Timer: %" PRId64 " ticks\n", timer_ticks(
 static void timer_interrupt(struct intr_frame* args UNUSED) {
   ticks++;
   thread_tick();
-
-  // struct thread* t = thread_current();
-  // if (t->is_sleeping == true && timer_elapsed(t->start) >= t->wait_time) {
-  //   thread_unblock();
-  //   thread_current()->is_sleeping = false;
-  // }
-  struct list_elem* e;
-  struct list* sleepy_list = get_sleepy();
-  struct thread* t = NULL;
-  for (e = list_begin(sleepy_list); e != list_end(sleepy_list); e = list_next(e)) {
-    t = list_entry(e, struct thread, wait_elem);
-    if (t->is_sleeping == true && timer_ticks() >= t->wakeup_time) {
-      thread_unblock(t);
-      t->is_sleeping = false;
-      remove_sleepy(t);
-    }
-    // else {
-    //   break;
-    // }
-  }
-  /*TODO: Yield on return if the woken threads is higher priority*/
-  if (active_sched_policy == SCHED_PRIO && t != NULL &&
-      t->effective > thread_current()->effective) {
-    if (intr_context())
-      intr_yield_on_return();
-    else
-      thread_yield();
-  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

@@ -93,27 +93,6 @@ struct thread {
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
-  /*List element for wait list*/
-  struct list_elem wait_elem;
-
-  /* List element for semaphores. */
-  struct list_elem sema_elem;
-
-  /* List element for priority queue*/
-  struct list_elem pq_elem;
-
-  /*Sleeping variables*/
-  int64_t wakeup_time; /*The time that the thread should wake up*/
-  bool is_sleeping;    /*bool to determing is thread is alseep*/
-
-  /* sychronization variable */
-  struct lock lock;
-
-  /* Priority Donation Variables */
-  int effective;             /* Effective priority of thread */
-  struct lock* donated_lock; /* Thread we donated priority to */
-  struct list donor_list;    /* List of locks we hold (so we can find the donors) */
-
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
@@ -121,15 +100,6 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
-  uint8_t* page;  /* top of stack address in page directory */
-};
-
-struct user_thread_input {
-  struct stub_fun* stub;
-  struct pthread_fun* function;
-  void* args;
-  struct process* pcb; //original pcb that we need to add new threaad to
-  struct semaphore thread_sema_exec;
 };
 
 /* Types of scheduler that the user can request the kernel
@@ -167,8 +137,6 @@ const char* thread_name(void);
 void thread_exit(void) NO_RETURN;
 void thread_yield(void);
 
-void priority_queue_init(struct priority_queue* pq);
-
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func(struct thread* t, void* aux);
 void thread_foreach(thread_action_func*, void*);
@@ -180,16 +148,5 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
-
-bool wait_less(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED);
-
-void add_sleepy(struct thread* t);
-void remove_sleepy(struct thread* t);
-struct list* get_sleepy(void);
-bool greater_prio(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
-bool greater_list(const struct list_elem* pq_e1, const struct list_elem* pq_e2, void* aux);
-void thread_donate_priority(struct thread* t, struct lock* lock);
-void thread_try_yield();
-bool greater_prio_waiters(const struct list_elem* pq_elem1, const struct list_elem* pq_elem2);
 
 #endif /* threads/thread.h */
