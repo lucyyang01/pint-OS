@@ -72,10 +72,30 @@ void cache_read(block_sector_t sector, const void* buffer) {
       lock_acquire(&block->block_lock);
       memcpy(buffer, block->buffer, sizeof(buffer));
       lock_release(&block->block_lock);
-      break;
+      //update position of block
+      lock_acquire(&global_cache_lock);
+      list_remove(e);
+      list_push_front(&global_cache_lock, e);
+      lock_release(&global_cache_lock);
+      return;
     }
   }
-  //if not in cache, load in the block and evict if ncessary
+  //if not in cache, evict if necessary and load in the block
+  if (list_size(&buffer_cache) == 64) {
+    cache_evict();
+  }
+  lock_acquire(&global_cache_lock);
+  //load in new block
+  struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+  block->valid = true;
+  block->sector = sector;
+  block->dirty = false;
+  block_read(fs_device, sector, block->buffer);
+  struct list_elem elem = {NULL, NULL};
+  block->elem = elem;
+  list_push_front(&buffer_cache, &block->elem);
+  //read from block
+  lock_release(&global_cache_lock);
 }
 
 void cache_write(block_sector_t sector, const void* buffer) {
@@ -87,7 +107,11 @@ void cache_write(block_sector_t sector, const void* buffer) {
       lock_acquire(&block->block_lock);
       memcpy(block->buffer, buffer, sizeof(buffer));
       lock_release(&block->block_lock);
-      break;
+      //update position of block
+      lock_acquire(&global_cache_lock);
+      list_remove(e);
+      list_push_front(&global_cache_lock, e);
+      return;
     }
   }
   //if not in cache, evict if necessary and load in the block
@@ -95,6 +119,15 @@ void cache_write(block_sector_t sector, const void* buffer) {
     cache_evict();
   }
   lock_acquire(&global_cache_lock);
+  struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+  block->valid = true;
+  block->sector = sector;
+  block_read(fs_device, sector, block->buffer);
+  struct list_elem elem = {NULL, NULL};
+  block->elem = elem;
+  //write to block before adding to list
+  block->dirty = true;
+  list_push_front(&buffer_cache, &block->elem);
   lock_release(&global_cache_lock);
 }
 
