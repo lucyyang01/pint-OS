@@ -5,16 +5,14 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 #include <list.h>
+#include "threads/synch.h"
 
 struct bitmap;
-
-static struct list* buffer_cache;
-struct lock* global_cache_lock;
 
 struct buffer_cache_elem {
   block_sector_t sector;
   void* buffer[BLOCK_SECTOR_SIZE];
-  struct lock* block_lock;
+  struct lock block_lock;
   bool dirty;
   bool valid;
   struct list_elem elem;

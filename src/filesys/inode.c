@@ -34,24 +34,6 @@ struct inode {
   struct inode_disk data; /* Inode content. */
 };
 
-void cache_read(block_sector_t sector, const void* buffer) {
-  //iterate through buffer_cache to check for block
-  struct list_elem* e;
-  for (e = list_begin(buffer_cache); e != list_end(buffer_cache); e = list_next(e)) {
-    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
-  }
-  //if not in cache, load in the block and evict if ncessary
-}
-
-void cache_write(block_sector_t sector, const void* buffer) {
-  //iterate through buffer_cache to check for block
-  //if not in cache, load in the block and evict if ncessary
-}
-
-void cache_flush() {
-  //Evict all the blocks and write if necessary.
-}
-
 /* Returns the block device sector that contains byte offset POS
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
@@ -68,14 +50,19 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
    returns the same `struct inode'. */
 static struct list open_inodes;
 
+static struct list buffer_cache;
+static struct lock global_cache_lock;
+
 /* Initializes the inode module. */
 void inode_init(void) {
 
   list_init(&open_inodes);
 
   //Initialize buffer cache
-  list_init(buffer_cache);
-  //lock_init(global_cache_lock);
+  list_init(&buffer_cache);
+
+  int x = 5;
+  lock_init(&global_cache_lock);
   for (int i = 0; i < 64; i++) {
     struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
     block->valid = false;
@@ -83,9 +70,27 @@ void inode_init(void) {
     block->dirty = false;
     struct list_elem elem = {NULL, NULL};
     block->elem = elem;
-    lock_init(block->block_lock);
-    list_push_front(buffer_cache, &block->elem);
+    lock_init(&block->block_lock);
+    list_push_front(&buffer_cache, &block->elem);
   }
+}
+
+void cache_read(block_sector_t sector, const void* buffer) {
+  //iterate through buffer_cache to check for block
+  struct list_elem* e;
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+  }
+  //if not in cache, load in the block and evict if ncessary
+}
+
+void cache_write(block_sector_t sector, const void* buffer) {
+  //iterate through buffer_cache to check for block
+  //if not in cache, load in the block and evict if ncessary
+}
+
+void cache_flush() {
+  //Evict all the blocks and write if necessary.
 }
 
 /* Initializes an inode with LENGTH bytes of data and
