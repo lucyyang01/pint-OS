@@ -66,9 +66,11 @@ void inode_init(void) {
 void cache_read(block_sector_t sector, const void* buffer) {
   //iterate through buffer_cache to check for block
   struct list_elem* e;
+  lock_acquire(&global_cache_lock);
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
+      lock_release(&global_cache_lock);
       lock_acquire(&block->block_lock);
       memcpy(buffer, block->buffer, sizeof(buffer));
       lock_release(&block->block_lock);
@@ -80,6 +82,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
       return;
     }
   }
+  lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
   if (list_size(&buffer_cache) == 64) {
     cache_evict();
@@ -90,6 +93,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
   block->valid = true;
   block->sector = sector;
   block->dirty = false;
+  lock_init(&block->block_lock);
   block_read(fs_device, sector, block->buffer);
   struct list_elem elem = {NULL, NULL};
   block->elem = elem;
@@ -101,12 +105,16 @@ void cache_read(block_sector_t sector, const void* buffer) {
 void cache_write(block_sector_t sector, const void* buffer) {
   //iterate through buffer_cache to check for block
   struct list_elem* e;
+  lock_acquire(&global_cache_lock);
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
+      lock_release(&global_cache_lock);
+
       lock_acquire(&block->block_lock);
       memcpy(block->buffer, buffer, sizeof(buffer));
       lock_release(&block->block_lock);
+
       //update position of block
       lock_acquire(&global_cache_lock);
       list_remove(e);
@@ -136,7 +144,9 @@ void cache_evict() {
   struct buffer_cache_elem* block = list_pop_back(&buffer_cache);
   if (block->dirty && block->valid) {
     //write back to disk
+    block_write(fs_device, block->sector, block->buffer);
   }
+  free(block);
   lock_release(&global_cache_lock);
 }
 
@@ -148,9 +158,8 @@ void cache_flush() {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->dirty && block->valid) {
       lock_acquire(&block->block_lock);
-      //memcpy()
+      block_write(fs_device, block->sector, block->buffer);
       lock_release(&block->block_lock);
-      break;
     }
   }
   lock_release(&global_cache_lock);
@@ -288,7 +297,8 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
 
     if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
       /* Read full sector directly into caller's buffer. */
-      block_read(fs_device, sector_idx, buffer + bytes_read);
+      //block_read(fs_device, sector_idx, buffer + bytes_read);
+      cache_read(sector_idx, buffer + bytes_read);
     } else {
       /* Read sector into bounce buffer, then partially copy
              into caller's buffer. */
