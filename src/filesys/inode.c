@@ -66,8 +66,6 @@ void inode_init(void) {
   //   block->valid = false;
   //   block->sector = 0;
   //   block->dirty = false;
-  //   struct list_elem elem = {NULL, NULL};
-  //   block->elem = elem;
   //   lock_init(&block->block_lock);
   //   list_push_front(&buffer_cache, &block->elem);
   // }
@@ -85,10 +83,10 @@ void cache_read(block_sector_t sector, const void* buffer) {
       memcpy(buffer, block->buffer, sizeof(buffer));
       lock_release(&block->block_lock);
       //update position of block
-      // lock_acquire(&global_cache_lock);
-      // list_remove(&block->elem);
-      // list_push_front(&global_cache_lock, &block->elem);
-      // lock_release(&global_cache_lock);
+      lock_acquire(&global_cache_lock);
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      lock_release(&global_cache_lock);
       return;
     }
   }
@@ -118,15 +116,16 @@ void cache_write(block_sector_t sector, const void* buffer) {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
-      lock_release(&global_cache_lock);
       lock_acquire(&block->block_lock);
+      lock_release(&global_cache_lock);
       memcpy(block->buffer, buffer, sizeof(buffer));
       lock_release(&block->block_lock);
 
       //update position of block
-      // list_remove(e);
-      // list_push_front(&global_cache_lock, e);
-      // lock_release(&global_cache_lock);
+      lock_acquire(&global_cache_lock);
+      list_remove(e);
+      list_push_front(&buffer_cache, e);
+      lock_release(&global_cache_lock);
       return;
     }
     if (e->next == NULL) {
@@ -241,7 +240,8 @@ struct inode* inode_open(block_sector_t sector) {
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
-  block_read(fs_device, inode->sector, &inode->data);
+  //block_read(fs_device, inode->sector, &inode->data);
+  cache_read(inode->sector, &inode->data);
   return inode;
 }
 
