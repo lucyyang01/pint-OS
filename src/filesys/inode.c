@@ -70,15 +70,15 @@ void cache_read(block_sector_t sector, const void* buffer) {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
-      lock_release(&global_cache_lock);
       lock_acquire(&block->block_lock);
+      lock_release(&global_cache_lock);
       memcpy(buffer, block->buffer, sizeof(buffer));
       lock_release(&block->block_lock);
       //update position of block
-      lock_acquire(&global_cache_lock);
-      list_remove(e);
-      list_push_front(&global_cache_lock, e);
-      lock_release(&global_cache_lock);
+      // lock_acquire(&global_cache_lock);
+      // list_remove(&block->elem);
+      // list_push_front(&global_cache_lock, &block->elem);
+      // lock_release(&global_cache_lock);
       return;
     }
   }
@@ -90,14 +90,15 @@ void cache_read(block_sector_t sector, const void* buffer) {
   lock_acquire(&global_cache_lock);
   //load in new block
   struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+  list_push_front(&buffer_cache, &block->elem);
+  lock_init(&block->block_lock);
   block->valid = true;
   block->sector = sector;
   block->dirty = false;
-  lock_init(&block->block_lock);
-  block_read(fs_device, sector, block->buffer);
   struct list_elem elem = {NULL, NULL};
   block->elem = elem;
-  list_push_front(&buffer_cache, &block->elem);
+  block_read(fs_device, sector, block->buffer);
+  memcpy(buffer, block->buffer, sizeof(buffer));
   //read from block
   lock_release(&global_cache_lock);
 }
@@ -110,18 +111,18 @@ void cache_write(block_sector_t sector, const void* buffer) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
       lock_release(&global_cache_lock);
-
       lock_acquire(&block->block_lock);
       memcpy(block->buffer, buffer, sizeof(buffer));
       lock_release(&block->block_lock);
 
       //update position of block
-      lock_acquire(&global_cache_lock);
-      list_remove(e);
-      list_push_front(&global_cache_lock, e);
+      // list_remove(e);
+      // list_push_front(&global_cache_lock, e);
+      // lock_release(&global_cache_lock);
       return;
     }
   }
+  lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
   if (list_size(&buffer_cache) == 64) {
     cache_evict();
@@ -161,6 +162,7 @@ void cache_flush() {
       block_write(fs_device, block->sector, block->buffer);
       lock_release(&block->block_lock);
     }
+    //free(e);
   }
   lock_release(&global_cache_lock);
 }
@@ -308,6 +310,7 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
           break;
       }
       block_read(fs_device, sector_idx, bounce);
+      //cache_read(sector_idx, bounce);
       memcpy(buffer + bytes_read, bounce + sector_ofs, chunk_size);
     }
 
@@ -365,10 +368,12 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
              first.  Otherwise we start with a sector of all zeros. */
       if (sector_ofs > 0 || chunk_size < sector_left)
         block_read(fs_device, sector_idx, bounce);
+      //cache_read(sector_idx, bounce);
       else
         memset(bounce, 0, BLOCK_SECTOR_SIZE);
       memcpy(bounce + sector_ofs, buffer + bytes_written, chunk_size);
       block_write(fs_device, sector_idx, bounce);
+      //cache_write(sector_idx, bounce);
     }
 
     /* Advance. */
