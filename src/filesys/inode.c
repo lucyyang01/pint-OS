@@ -60,19 +60,7 @@ void inode_init(void) {
 
   //Initialize buffer cache
   list_init(&buffer_cache);
-
-  int x = 5;
   lock_init(&global_cache_lock);
-  for (int i = 0; i < 64; i++) {
-    struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
-    block->valid = false;
-    block->sector = 0;
-    block->dirty = false;
-    struct list_elem elem = {NULL, NULL};
-    block->elem = elem;
-    lock_init(&block->block_lock);
-    list_push_front(&buffer_cache, &block->elem);
-  }
 }
 
 void cache_read(block_sector_t sector, const void* buffer) {
@@ -80,17 +68,59 @@ void cache_read(block_sector_t sector, const void* buffer) {
   struct list_elem* e;
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (block->sector == sector && block->valid) {
+      lock_acquire(&block->block_lock);
+      memcpy(buffer, block->buffer, sizeof(buffer));
+      lock_release(&block->block_lock);
+      break;
+    }
   }
   //if not in cache, load in the block and evict if ncessary
 }
 
 void cache_write(block_sector_t sector, const void* buffer) {
   //iterate through buffer_cache to check for block
-  //if not in cache, load in the block and evict if ncessary
+  struct list_elem* e;
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (block->sector == sector && block->valid) {
+      lock_acquire(&block->block_lock);
+      memcpy(block->buffer, buffer, sizeof(buffer));
+      lock_release(&block->block_lock);
+      break;
+    }
+  }
+  //if not in cache, evict if necessary and load in the block
+  if (list_size(&buffer_cache) == 64) {
+    cache_evict();
+  }
+  lock_acquire(&global_cache_lock);
+  lock_release(&global_cache_lock);
+}
+
+void cache_evict() {
+  lock_acquire(&global_cache_lock);
+  struct buffer_cache_elem* block = list_pop_back(&buffer_cache);
+  if (block->dirty && block->valid) {
+    //write back to disk
+  }
+  lock_release(&global_cache_lock);
 }
 
 void cache_flush() {
   //Evict all the blocks and write if necessary.
+  lock_acquire(&global_cache_lock);
+  struct list_elem* e;
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (block->dirty && block->valid) {
+      lock_acquire(&block->block_lock);
+      //memcpy()
+      lock_release(&block->block_lock);
+      break;
+    }
+  }
+  lock_release(&global_cache_lock);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
