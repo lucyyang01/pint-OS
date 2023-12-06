@@ -52,6 +52,7 @@ static struct list open_inodes;
 
 static struct list buffer_cache;
 static struct lock global_cache_lock;
+static struct lock free_lock;
 
 /* Initializes the inode module. */
 void inode_init(void) {
@@ -61,6 +62,7 @@ void inode_init(void) {
   //Initialize buffer cache
   list_init(&buffer_cache);
   lock_init(&global_cache_lock);
+  lock_init(&free_lock);
   for (int i = 0; i < 64; i++) {
     struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
     block->valid = false;
@@ -85,7 +87,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
       //lock_acquire(&block->block_lock);
       //lock_release(&global_cache_lock);
       /* Copy block->buffer into buffer */
-      memcpy(buffer, block->buffer, sizeof(block->buffer));
+      memcpy(buffer, block->buffer, BLOCK_SECTOR_SIZE);
       //lock_release(&block->block_lock);
       //update position of block
       //lock_acquire(&global_cache_lock);
@@ -105,7 +107,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
       block->valid = true;
       block->sector = sector;
       block->dirty = false;
-      memcpy(buffer, block->buffer, sizeof(block->buffer));
+      memcpy(buffer, block->buffer, BLOCK_SECTOR_SIZE);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
       lock_release(&global_cache_lock);
@@ -126,7 +128,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
   block->sector = sector;
   block->dirty = false;
   block_read(fs_device, sector, block->buffer);
-  memcpy(buffer, block->buffer, sizeof(buffer));
+  memcpy(buffer, block->buffer, BLOCK_SECTOR_SIZE);
   //read from block
   lock_release(&global_cache_lock);
 }
@@ -140,7 +142,7 @@ void cache_write(block_sector_t sector, const void* buffer) {
     if (block->sector == sector && block->valid) {
       // lock_acquire(&block->block_lock);
       // lock_release(&global_cache_lock);
-      memcpy(block->buffer, buffer, sizeof(buffer));
+      memcpy(block->buffer, buffer, BLOCK_SECTOR_SIZE);
       block->dirty = true;
       // lock_release(&block->block_lock);
 
@@ -165,7 +167,7 @@ void cache_write(block_sector_t sector, const void* buffer) {
       block->valid = true;
       block->sector = sector;
       block->dirty = true;
-      memcpy(block->buffer, buffer, sizeof(buffer));
+      memcpy(block->buffer, buffer, BLOCK_SECTOR_SIZE);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
       lock_release(&global_cache_lock);
@@ -185,7 +187,7 @@ void cache_write(block_sector_t sector, const void* buffer) {
   block->sector = sector;
   block->dirty = true;
   //block_read(fs_device, sector, block->buffer);
-  memcpy(block->buffer, buffer, sizeof(buffer));
+  memcpy(block->buffer, buffer, BLOCK_SECTOR_SIZE);
   lock_release(&global_cache_lock);
 }
 
@@ -223,6 +225,7 @@ void cache_flush() {
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool inode_create(block_sector_t sector, off_t length) {
+  //lock_acquire(&free_lock);
   struct inode_disk* disk_inode = NULL;
   bool success = false;
 
@@ -252,6 +255,7 @@ bool inode_create(block_sector_t sector, off_t length) {
     }
     free(disk_inode);
   }
+  //lock_release(&free_lock);
   return success;
 }
 
