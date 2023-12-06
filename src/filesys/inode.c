@@ -133,8 +133,10 @@ void cache_read(block_sector_t sector, const void* buffer) {
   lock_release(&global_cache_lock);
 }
 
+/* Write sector SECTOR to cache from buffer, which must contain BLOCK_SECTOR_SIZE bytes.  */
 void cache_write(block_sector_t sector, const void* buffer) {
   //iterate through buffer_cache to check for block
+
   struct list_elem* e;
   lock_acquire(&global_cache_lock);
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
@@ -193,10 +195,12 @@ void cache_write(block_sector_t sector, const void* buffer) {
 
 void cache_evict() {
   // lock_acquire(&global_cache_lock);
-  struct buffer_cache_elem* block = list_back(&buffer_cache);
+  struct list_elem* element = list_back(&buffer_cache);
+  struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
   if (block->dirty && block->valid) {
     //write back to disk
     block_write(fs_device, block->sector, block->buffer);
+    // block->dirty
   }
 
   //free(block);
@@ -241,7 +245,8 @@ bool inode_create(block_sector_t sector, off_t length) {
     disk_inode->length = length;
     disk_inode->magic = INODE_MAGIC;
     if (free_map_allocate(sectors, &disk_inode->start)) {
-      //block_write(fs_device, sector, disk_inode);
+      /* Write sector SECTOR to fs_device from disk_inode, which must contain BLOCK_SECTOR_SIZE bytes.  */
+      // block_write(fs_device, sector, disk_inode);
       cache_write(sector, disk_inode);
       if (sectors > 0) {
         static char zeros[BLOCK_SECTOR_SIZE];
