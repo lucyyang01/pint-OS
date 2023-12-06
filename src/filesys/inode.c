@@ -87,6 +87,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
       lock_acquire(&block->block_lock);
       lock_release(&global_cache_lock);
       /* Copy block->buffer into buffer */
+
       memcpy(buffer, block->buffer, BLOCK_SECTOR_SIZE);
       lock_release(&block->block_lock);
       //update position of block
@@ -107,6 +108,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
       block->valid = true;
       block->sector = sector;
       block->dirty = false;
+      block_read(fs_device, sector, block->buffer);
       memcpy(buffer, block->buffer, BLOCK_SECTOR_SIZE);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
