@@ -84,20 +84,20 @@ void cache_read(block_sector_t sector, const void* buffer) {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
-      //lock_acquire(&block->block_lock);
-      //lock_release(&global_cache_lock);
+      lock_acquire(&block->block_lock);
+      lock_release(&global_cache_lock);
       /* Copy block->buffer into buffer */
       memcpy(buffer, block->buffer, BLOCK_SECTOR_SIZE);
-      //lock_release(&block->block_lock);
+      lock_release(&block->block_lock);
       //update position of block
-      //lock_acquire(&global_cache_lock);
+      lock_acquire(&global_cache_lock);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
       lock_release(&global_cache_lock);
       return;
     }
   }
-  // lock_release(&global_cache_lock);
+  lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
 
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
@@ -118,12 +118,12 @@ void cache_read(block_sector_t sector, const void* buffer) {
   /* Did not find an invalid block to write to: must evict */
   cache_evict();
 
-  // lock_acquire(&global_cache_lock);
+  lock_acquire(&global_cache_lock);
   //load in new block
   struct list_elem* element = list_pop_back(&buffer_cache);
   struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
   list_push_front(&buffer_cache, &block->elem);
-  // lock_init(&block->block_lock);
+  lock_init(&block->block_lock);
   block->valid = true;
   block->sector = sector;
   block->dirty = false;
@@ -142,14 +142,14 @@ void cache_write(block_sector_t sector, const void* buffer) {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
-      // lock_acquire(&block->block_lock);
-      // lock_release(&global_cache_lock);
+      lock_acquire(&block->block_lock);
+      lock_release(&global_cache_lock);
       memcpy(block->buffer, buffer, BLOCK_SECTOR_SIZE);
       block->dirty = true;
-      // lock_release(&block->block_lock);
+      lock_release(&block->block_lock);
 
       //update position of block
-      // lock_acquire(&global_cache_lock);
+      lock_acquire(&global_cache_lock);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
       lock_release(&global_cache_lock);
@@ -160,7 +160,6 @@ void cache_write(block_sector_t sector, const void* buffer) {
       return;
     }
   }
-  // lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
@@ -184,11 +183,11 @@ void cache_write(block_sector_t sector, const void* buffer) {
   struct list_elem* element = list_pop_back(&buffer_cache);
   struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
   list_push_front(&buffer_cache, &block->elem);
-  // lock_init(&block->block_lock);
+  lock_init(&block->block_lock);
   block->valid = true;
   block->sector = sector;
   block->dirty = true;
-  //block_read(fs_device, sector, block->buffer);
+  block_read(fs_device, sector, block->buffer);
   memcpy(block->buffer, buffer, BLOCK_SECTOR_SIZE);
   lock_release(&global_cache_lock);
 }
@@ -214,9 +213,9 @@ void cache_flush() {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->dirty && block->valid) {
-      //lock_acquire(&block->block_lock);
+      lock_acquire(&block->block_lock);
       block_write(fs_device, block->sector, block->buffer);
-      //lock_release(&block->block_lock);
+      lock_release(&block->block_lock);
     }
     //free(e);
   }
