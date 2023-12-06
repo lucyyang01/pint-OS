@@ -18,6 +18,7 @@ struct buffer_cache_elem {
   struct list_elem elem;
 };
 
+void cache_flush();
 void inode_init(void);
 bool inode_create(block_sector_t, off_t);
 struct inode* inode_open(block_sector_t);

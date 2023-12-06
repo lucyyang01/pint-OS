@@ -61,15 +61,19 @@ void inode_init(void) {
   //Initialize buffer cache
   list_init(&buffer_cache);
   lock_init(&global_cache_lock);
-  // for (int i = 0; i < 64; i++) {
-  //   struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
-  //   block->valid = false;
-  //   block->sector = 0;
-  //   block->dirty = false;
-  //   lock_init(&block->block_lock);
-  //   list_push_front(&buffer_cache, &block->elem);
-  // }
+  for (int i = 0; i < 64; i++) {
+    struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+    block->valid = false;
+    block->sector = 0;
+    block->dirty = false;
+    lock_init(&block->block_lock);
+    list_push_front(&buffer_cache, &block->elem);
+  }
 }
+/*
+let go of global cache lock:
+every eviction has been written to the cache somehow
+*/
 
 void cache_read(block_sector_t sector, const void* buffer) {
   //iterate through buffer_cache to check for block
@@ -78,28 +82,46 @@ void cache_read(block_sector_t sector, const void* buffer) {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
-      lock_acquire(&block->block_lock);
-      lock_release(&global_cache_lock);
-      memcpy(buffer, block->buffer, sizeof(buffer));
-      lock_release(&block->block_lock);
+      //lock_acquire(&block->block_lock);
+      //lock_release(&global_cache_lock);
+      /* Copy block->buffer into buffer */
+      memcpy(buffer, block->buffer, sizeof(block->buffer));
+      //lock_release(&block->block_lock);
       //update position of block
-      lock_acquire(&global_cache_lock);
+      //lock_acquire(&global_cache_lock);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
       lock_release(&global_cache_lock);
       return;
     }
   }
-  lock_release(&global_cache_lock);
+  // lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
-  if (list_size(&buffer_cache) == 64) {
-    cache_evict();
+
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (!block->valid) {
+      /* Found invalid block we can write to */
+      block->valid = true;
+      block->sector = sector;
+      block->dirty = false;
+      memcpy(buffer, block->buffer, sizeof(block->buffer));
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      lock_release(&global_cache_lock);
+      return;
+    }
   }
-  lock_acquire(&global_cache_lock);
+
+  /* Did not find an invalid block to write to: must evict */
+  cache_evict();
+
+  // lock_acquire(&global_cache_lock);
   //load in new block
-  struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+  struct list_elem* element = list_pop_back(&buffer_cache);
+  struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
   list_push_front(&buffer_cache, &block->elem);
-  lock_init(&block->block_lock);
+  // lock_init(&block->block_lock);
   block->valid = true;
   block->sector = sector;
   block->dirty = false;
@@ -116,49 +138,67 @@ void cache_write(block_sector_t sector, const void* buffer) {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
-      lock_acquire(&block->block_lock);
-      lock_release(&global_cache_lock);
+      // lock_acquire(&block->block_lock);
+      // lock_release(&global_cache_lock);
       memcpy(block->buffer, buffer, sizeof(buffer));
-      lock_release(&block->block_lock);
+      block->dirty = true;
+      // lock_release(&block->block_lock);
 
       //update position of block
-      lock_acquire(&global_cache_lock);
-      list_remove(e);
-      list_push_front(&buffer_cache, e);
+      // lock_acquire(&global_cache_lock);
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
       lock_release(&global_cache_lock);
       return;
     }
     if (e->next == NULL) {
+      lock_release(&global_cache_lock);
       return;
     }
   }
-  lock_release(&global_cache_lock);
+  // lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
-  if (list_size(&buffer_cache) == 64) {
-    cache_evict();
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (!block->valid) {
+      /* Found invalid block we can write to */
+      block->valid = true;
+      block->sector = sector;
+      block->dirty = true;
+      memcpy(block->buffer, buffer, sizeof(buffer));
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      lock_release(&global_cache_lock);
+      return;
+    }
   }
-  lock_acquire(&global_cache_lock);
+
+  /* Did not find an invalid block to write to: must evict */
+  cache_evict();
+
   //load in new block
-  struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+  struct list_elem* element = list_pop_back(&buffer_cache);
+  struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
   list_push_front(&buffer_cache, &block->elem);
-  lock_init(&block->block_lock);
+  // lock_init(&block->block_lock);
   block->valid = true;
   block->sector = sector;
-  block->dirty = false;
-  block_read(fs_device, sector, block->buffer);
+  block->dirty = true;
+  //block_read(fs_device, sector, block->buffer);
   memcpy(block->buffer, buffer, sizeof(buffer));
   lock_release(&global_cache_lock);
 }
 
 void cache_evict() {
-  lock_acquire(&global_cache_lock);
-  struct buffer_cache_elem* block = list_pop_back(&buffer_cache);
+  // lock_acquire(&global_cache_lock);
+  struct buffer_cache_elem* block = list_back(&buffer_cache);
   if (block->dirty && block->valid) {
     //write back to disk
     block_write(fs_device, block->sector, block->buffer);
   }
+
   //free(block);
-  lock_release(&global_cache_lock);
+  // lock_release(&global_cache_lock);
 }
 
 void cache_flush() {
@@ -168,9 +208,9 @@ void cache_flush() {
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->dirty && block->valid) {
-      lock_acquire(&block->block_lock);
+      //lock_acquire(&block->block_lock);
       block_write(fs_device, block->sector, block->buffer);
-      lock_release(&block->block_lock);
+      //lock_release(&block->block_lock);
     }
     //free(e);
   }
@@ -198,13 +238,15 @@ bool inode_create(block_sector_t sector, off_t length) {
     disk_inode->length = length;
     disk_inode->magic = INODE_MAGIC;
     if (free_map_allocate(sectors, &disk_inode->start)) {
-      block_write(fs_device, sector, disk_inode);
+      //block_write(fs_device, sector, disk_inode);
+      cache_write(sector, disk_inode);
       if (sectors > 0) {
         static char zeros[BLOCK_SECTOR_SIZE];
         size_t i;
 
         for (i = 0; i < sectors; i++)
-          block_write(fs_device, disk_inode->start + i, zeros);
+          //block_write(fs_device, disk_inode->start + i, zeros);
+          cache_write(disk_inode->start + i, zeros);
       }
       success = true;
     }
