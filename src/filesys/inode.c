@@ -473,10 +473,6 @@ void inode_allow_write(struct inode* inode) {
 /* Returns the length, in bytes, of INODE's data. */
 off_t inode_length(const struct inode* inode) { return inode->data.length; }
 
-double get_buffer_hitrate() {
-  if (cache_hits == cache_accesses) {
-    return 1;
-  }
-  float hitrate = (float)cache_hits / (float)cache_accesses;
-  return hitrate;
-}
+float get_buffer_accesses() { return cache_accesses; }
+
+float get_buffer_hits() { return cache_hits; }

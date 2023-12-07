@@ -13,14 +13,21 @@ Then, close it, re-open it, and read it sequentially again, to make sure that th
 
 void test_main(void) {
   cache_flush();
-  double begin_hitrate = hit_rate();
-  msg("%f", begin_hitrate);
+  float h1 = cache_hits();
+  float a1 = cache_accesses();
+
+  float begin_hitrate = h1 / a1;
+  CHECK(begin_hitrate <= 1, "Check that hitrate is less than 0");
   /* Check file opens, reads blocks sequentially, and closes the file */
   check_file("sample.txt", sample, sizeof sample - 1);
-  double first_hitrate = hit_rate();
-  msg("%f", first_hitrate);
+  float h2 = cache_hits();
+  float a2 = cache_accesses();
+  double first_hitrate = h2 / a2;
+  CHECK(first_hitrate <= 1, "Check that hitrate is less than 0");
   check_file("sample.txt", sample, sizeof sample - 1);
-  double second_hitrate = hit_rate();
-  msg("%f", second_hitrate);
-  // CHECK(first_hitrate < second_hitrate, "Check that the hit rate improves.");
+  float h3 = cache_hits();
+  float a3 = cache_accesses();
+  double second_hitrate = h3 / a3;
+  CHECK(second_hitrate <= 1, "Check that hitrate is less than 0");
+  CHECK(first_hitrate < second_hitrate, "Check that the hit rate improves.");
 }

@@ -160,8 +160,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_COMPUTE_E) {
     f->eax = compute_e(args[1]);
   }
-  if (args[0] == SYS_HITRATE) {
-    f->eax = get_buffer_hitrate();
+  if (args[0] == SYS_HITS) {
+    f->eax = get_buffer_hits();
+  }
+  if (args[0] == SYS_ACCESSES) {
+    f->eax = get_buffer_accesses();
   }
   if (args[0] == SYS_FLUSH) {
     f->eax = cache_flush();
