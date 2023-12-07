@@ -9,6 +9,7 @@ buffer-cache-2
 
 
 tests/filesys/extended/buffer-cache-1_PUTFILES += tests/filesys/extended/sample.txt
+tests/filesys/extended/buffer-cache-2_PUTFILES += tests/filesys/extended/test.txt
 tests/filesys/extended_TESTS = $(patsubst %,tests/filesys/extended/%,$(raw_tests))
 tests/filesys/extended_EXTRA_GRADES = $(patsubst %,tests/filesys/extended/%-persistence,$(raw_tests))
 
