@@ -169,6 +169,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_FLUSH) {
     f->eax = cache_flush();
   }
+  if (args[0] == SYS_DEVICE_WRITES) {
+    f->eax = get_device_writes();
+  }
 }
 
 double compute_e(int n) { return (double)sys_sum_to_e(n); }

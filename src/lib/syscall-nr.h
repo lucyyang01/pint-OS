@@ -43,6 +43,7 @@ enum {
   SYS_HITS,    /*Returns hits of cache*/
   SYS_ACCESSES,
   SYS_FLUSH, /*Resets the Cache*/
+  SYS_DEVICE_WRITES,
 };
 
 #endif /* lib/syscall-nr.h */

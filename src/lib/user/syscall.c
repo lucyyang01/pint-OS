@@ -121,6 +121,7 @@ double compute_e(int n) { return (double)syscall1f(SYS_COMPUTE_E, n); }
 float cache_hits() { return syscall0(SYS_HITS); }
 float cache_accesses() { return syscall0(SYS_ACCESSES); }
 void cache_flush() { return syscall0(SYS_FLUSH); }
+long device_writes() { return syscall0(SYS_DEVICE_WRITES); }
 
 tid_t sys_pthread_create(stub_fun sfun, pthread_fun tfun, const void* arg) {
   return syscall3(SYS_PT_CREATE, sfun, tfun, arg);
