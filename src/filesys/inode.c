@@ -7,6 +7,7 @@
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "devices/block.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -476,3 +477,5 @@ off_t inode_length(const struct inode* inode) { return inode->data.length; }
 float get_buffer_accesses() { return cache_accesses; }
 
 float get_buffer_hits() { return cache_hits; }
+
+long get_device_writes() { return get_writes(fs_device); }
