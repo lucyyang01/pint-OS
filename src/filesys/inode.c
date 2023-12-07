@@ -54,6 +54,9 @@ static struct list buffer_cache;
 static struct lock global_cache_lock;
 static struct lock free_lock;
 
+static int cache_hits;
+static int cache_accesses;
+
 /* Initializes the inode module. */
 void inode_init(void) {
 
@@ -81,6 +84,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
   //iterate through buffer_cache to check for block
   struct list_elem* e;
   lock_acquire(&global_cache_lock);
+  cache_accesses = cache_accesses + 1;
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
@@ -94,11 +98,12 @@ void cache_read(block_sector_t sector, const void* buffer) {
       lock_acquire(&global_cache_lock);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
+      cache_hits = cache_hits + 1;
       lock_release(&global_cache_lock);
       return;
     }
   }
-  lock_release(&global_cache_lock);
+  //lock_release(&global_cache_lock);
   //if not in cache, evict if necessary and load in the block
 
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
@@ -120,7 +125,7 @@ void cache_read(block_sector_t sector, const void* buffer) {
   /* Did not find an invalid block to write to: must evict */
   cache_evict();
 
-  lock_acquire(&global_cache_lock);
+  //lock_acquire(&global_cache_lock);
   //load in new block
   struct list_elem* element = list_pop_back(&buffer_cache);
   struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
@@ -141,6 +146,7 @@ void cache_write(block_sector_t sector, const void* buffer) {
 
   struct list_elem* e;
   lock_acquire(&global_cache_lock);
+  cache_accesses = cache_accesses + 1;
   for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
     struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
     if (block->sector == sector && block->valid) {
@@ -154,10 +160,7 @@ void cache_write(block_sector_t sector, const void* buffer) {
       lock_acquire(&global_cache_lock);
       list_remove(&block->elem);
       list_push_front(&buffer_cache, &block->elem);
-      lock_release(&global_cache_lock);
-      return;
-    }
-    if (e->next == NULL) {
+      cache_hits = cache_hits + 1;
       lock_release(&global_cache_lock);
       return;
     }
@@ -219,6 +222,7 @@ void cache_flush() {
       block_write(fs_device, block->sector, block->buffer);
       lock_release(&block->block_lock);
     }
+    block->valid = false;
     //free(e);
   }
   lock_release(&global_cache_lock);
@@ -468,3 +472,7 @@ void inode_allow_write(struct inode* inode) {
 
 /* Returns the length, in bytes, of INODE's data. */
 off_t inode_length(const struct inode* inode) { return inode->data.length; }
+
+float get_buffer_accesses() { return cache_accesses; }
+
+float get_buffer_hits() { return cache_hits; }
