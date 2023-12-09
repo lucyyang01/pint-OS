@@ -4,8 +4,12 @@ raw_tests = dir-empty-name dir-mk-tree dir-mkdir dir-open		\
 dir-over-file dir-rm-cwd dir-rm-parent dir-rm-root dir-rm-tree		\
 dir-rmdir dir-under-file dir-vine grow-create grow-dir-lg		\
 grow-file-size grow-root-lg grow-root-sm grow-seq-lg grow-seq-sm	\
-grow-sparse grow-tell grow-two-files syn-rw
+grow-sparse grow-tell grow-two-files syn-rw buffer-cache-1 		\
+buffer-cache-2
 
+
+tests/filesys/extended/buffer-cache-1_PUTFILES += tests/filesys/extended/sample.txt
+tests/filesys/extended/buffer-cache-2_PUTFILES += tests/filesys/extended/test.txt
 tests/filesys/extended_TESTS = $(patsubst %,tests/filesys/extended/%,$(raw_tests))
 tests/filesys/extended_EXTRA_GRADES = $(patsubst %,tests/filesys/extended/%-persistence,$(raw_tests))
 
@@ -24,6 +28,7 @@ $(foreach test,$(tests/filesys/extended_TESTS),$(eval $(test).output: FILESYSSOU
 
 tests/filesys/extended/dir-mk-tree_SRC += tests/filesys/extended/mk-tree.c
 tests/filesys/extended/dir-rm-tree_SRC += tests/filesys/extended/mk-tree.c
+
 
 tests/filesys/extended/syn-rw_PUTFILES += tests/filesys/extended/child-syn-rw
 

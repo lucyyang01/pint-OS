@@ -7,6 +7,7 @@
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "devices/block.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -30,10 +31,183 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
 static struct list open_inodes;
 struct lock inode_list_lock;
 
+static struct list buffer_cache;
+static struct lock global_cache_lock;
+static struct lock free_lock;
+
+static int cache_hits;
+static int cache_accesses;
+
 /* Initializes the inode module. */
 void inode_init(void) {
+
   list_init(&open_inodes);
-  //lock_init(&inode_list_lock);
+
+  //Initialize buffer cache
+  list_init(&buffer_cache);
+  lock_init(&global_cache_lock);
+  lock_init(&free_lock);
+  for (int i = 0; i < 64; i++) {
+    struct buffer_cache_elem* block = malloc(sizeof(struct buffer_cache_elem));
+    block->valid = false;
+    block->sector = 0;
+    block->dirty = false;
+    lock_init(&block->block_lock);
+    list_push_front(&buffer_cache, &block->elem);
+  }
+}
+/*
+let go of global cache lock:
+every eviction has been written to the cache somehow
+*/
+
+/* Reads information at sector through the buffer cache into the buffer */
+void cache_read(block_sector_t sector, const void* buffer, int chunk_size, int sector_ofs) {
+  //iterate through buffer_cache to check for block
+  struct list_elem* e;
+  lock_acquire(&global_cache_lock);
+  cache_accesses = cache_accesses + 1;
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (block->sector == sector && block->valid) {
+      lock_acquire(&block->block_lock);
+      lock_release(&global_cache_lock);
+      /* Copy block->buffer into buffer */
+
+      memcpy(buffer, (uint8_t*)block->buffer + sector_ofs, chunk_size);
+      lock_release(&block->block_lock);
+      //update position of block
+      lock_acquire(&global_cache_lock);
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      cache_hits = cache_hits + 1;
+      lock_release(&global_cache_lock);
+      return;
+    }
+  }
+  //lock_release(&global_cache_lock);
+  //if not in cache, evict if necessary and load in the block
+
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (!block->valid) {
+      /* Found invalid block we can write to */
+      block->valid = true;
+      block->sector = sector;
+      block->dirty = false;
+      block_read(fs_device, sector, block->buffer);
+      memcpy(buffer, (uint8_t*)block->buffer + sector_ofs, chunk_size);
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      lock_release(&global_cache_lock);
+      return;
+    }
+  }
+
+  /* Did not find an invalid block to write to: must evict */
+  cache_evict();
+
+  //lock_acquire(&global_cache_lock);
+  //load in new block
+  struct list_elem* element = list_pop_back(&buffer_cache);
+  struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
+  list_push_front(&buffer_cache, &block->elem);
+  lock_init(&block->block_lock);
+  block->valid = true;
+  block->sector = sector;
+  block->dirty = false;
+  block_read(fs_device, sector, block->buffer);
+  memcpy(buffer, (uint8_t*)block->buffer + sector_ofs, chunk_size);
+  //read from block
+  lock_release(&global_cache_lock);
+}
+
+/* Write sector SECTOR to cache from buffer, which must contain BLOCK_SECTOR_SIZE bytes.  */
+void cache_write(block_sector_t sector, const void* buffer, int chunk_size, int sector_ofs) {
+  //iterate through buffer_cache to check for block
+
+  struct list_elem* e;
+  lock_acquire(&global_cache_lock);
+  cache_accesses = cache_accesses + 1;
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (block->sector == sector && block->valid) {
+      lock_acquire(&block->block_lock);
+      lock_release(&global_cache_lock);
+      memcpy((uint8_t*)block->buffer + sector_ofs, buffer, chunk_size);
+      block->dirty = true;
+      lock_release(&block->block_lock);
+
+      //update position of block
+      lock_acquire(&global_cache_lock);
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      cache_hits = cache_hits + 1;
+      lock_release(&global_cache_lock);
+      return;
+    }
+  }
+  //if not in cache, evict if necessary and load in the block
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (!block->valid) {
+      /* Found invalid block we can write to */
+      block->valid = true;
+      block->sector = sector;
+      block->dirty = true;
+      memcpy((uint8_t*)block->buffer + sector_ofs, buffer, chunk_size);
+      list_remove(&block->elem);
+      list_push_front(&buffer_cache, &block->elem);
+      lock_release(&global_cache_lock);
+      return;
+    }
+  }
+
+  /* Did not find an invalid block to write to: must evict */
+  cache_evict();
+
+  //load in new block
+  struct list_elem* element = list_pop_back(&buffer_cache);
+  struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
+  list_push_front(&buffer_cache, &block->elem);
+  lock_init(&block->block_lock);
+  block->valid = true;
+  block->sector = sector;
+  block->dirty = true;
+  block_read(fs_device, sector, block->buffer);
+  memcpy((uint8_t*)block->buffer + sector_ofs, buffer, chunk_size);
+  lock_release(&global_cache_lock);
+}
+
+void cache_evict() {
+  // lock_acquire(&global_cache_lock);
+  struct list_elem* element = list_back(&buffer_cache);
+  struct buffer_cache_elem* block = list_entry(element, struct buffer_cache_elem, elem);
+  if (block->dirty && block->valid) {
+    //write back to disk
+    block_write(fs_device, block->sector, block->buffer);
+    // block->dirty
+  }
+
+  //free(block);
+  // lock_release(&global_cache_lock);
+}
+
+void cache_flush() {
+  //Evict all the blocks and write if necessary.
+  lock_acquire(&global_cache_lock);
+  struct list_elem* e;
+  for (e = list_begin(&buffer_cache); e != list_end(&buffer_cache); e = list_next(e)) {
+    struct buffer_cache_elem* block = list_entry(e, struct buffer_cache_elem, elem);
+    if (block->dirty && block->valid) {
+      lock_acquire(&block->block_lock);
+      block_write(fs_device, block->sector, block->buffer);
+      lock_release(&block->block_lock);
+    }
+    block->valid = false;
+    //free(e);
+  }
+  lock_release(&global_cache_lock);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -42,6 +216,7 @@ void inode_init(void) {
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool inode_create(block_sector_t sector, off_t length) {
+  //lock_acquire(&free_lock);
   struct inode_disk* disk_inode = NULL;
   bool success = false;
 
@@ -57,18 +232,22 @@ bool inode_create(block_sector_t sector, off_t length) {
     disk_inode->length = length;
     disk_inode->magic = INODE_MAGIC;
     if (free_map_allocate(sectors, &disk_inode->start)) {
-      block_write(fs_device, sector, disk_inode);
+      /* Write sector SECTOR to fs_device from disk_inode, which must contain BLOCK_SECTOR_SIZE bytes.  */
+      // block_write(fs_device, sector, disk_inode);
+      cache_write(sector, disk_inode, BLOCK_SECTOR_SIZE, 0);
       if (sectors > 0) {
         static char zeros[BLOCK_SECTOR_SIZE];
         size_t i;
 
         for (i = 0; i < sectors; i++)
-          block_write(fs_device, disk_inode->start + i, zeros);
+          //block_write(fs_device, disk_inode->start + i, zeros);
+          cache_write(disk_inode->start + i, zeros, BLOCK_SECTOR_SIZE, 0);
       }
       success = true;
     }
     free(disk_inode);
   }
+  //lock_release(&free_lock);
   return success;
 }
 
@@ -106,11 +285,8 @@ struct inode* inode_open(block_sector_t sector) {
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
-  // initialize ionde lock
-  // lock_init(&inode->lock);
-  //lock_acquire(&inode->lock);
-  block_read(fs_device, inode->sector, &inode->data);
-  //lock_release(&inode->lock);
+  //block_read(fs_device, inode->sector, &inode->data);
+  cache_read(inode->sector, &inode->data, BLOCK_SECTOR_SIZE, 0);
   return inode;
 }
 
@@ -171,7 +347,6 @@ void inode_remove(struct inode* inode) {
 off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset) {
   uint8_t* buffer = buffer_;
   off_t bytes_read = 0;
-  uint8_t* bounce = NULL;
 
   while (size > 0) {
     /* Disk sector to read, starting byte offset within sector. */
@@ -194,17 +369,10 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
 
     if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
       /* Read full sector directly into caller's buffer. */
-      block_read(fs_device, sector_idx, buffer + bytes_read);
+      cache_read(sector_idx, buffer + bytes_read, BLOCK_SECTOR_SIZE, 0);
     } else {
-      /* Read sector into bounce buffer, then partially copy
-             into caller's buffer. */
-      if (bounce == NULL) {
-        bounce = malloc(BLOCK_SECTOR_SIZE);
-        if (bounce == NULL)
-          break;
-      }
-      block_read(fs_device, sector_idx, bounce);
-      memcpy(buffer + bytes_read, bounce + sector_ofs, chunk_size);
+
+      cache_read(sector_idx, buffer + bytes_read, chunk_size, sector_ofs);
     }
 
     /* Advance. */
@@ -212,7 +380,6 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
     offset += chunk_size;
     bytes_read += chunk_size;
   }
-  free(bounce);
 
   return bytes_read;
 }
@@ -225,7 +392,6 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
 off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t offset) {
   const uint8_t* buffer = buffer_;
   off_t bytes_written = 0;
-  uint8_t* bounce = NULL;
 
   // acquire inode lock
   // lock_acquire(&inode->lock);
@@ -253,24 +419,10 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
 
     if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
       /* Write full sector directly to disk. */
-      block_write(fs_device, sector_idx, buffer + bytes_written);
+      //block_write(fs_device, sector_idx, buffer + bytes_written);
+      cache_write(sector_idx, buffer + bytes_written, BLOCK_SECTOR_SIZE, 0);
     } else {
-      /* We need a bounce buffer. */
-      if (bounce == NULL) {
-        bounce = malloc(BLOCK_SECTOR_SIZE);
-        if (bounce == NULL)
-          break;
-      }
-
-      /* If the sector contains data before or after the chunk
-             we're writing, then we need to read in the sector
-             first.  Otherwise we start with a sector of all zeros. */
-      if (sector_ofs > 0 || chunk_size < sector_left)
-        block_read(fs_device, sector_idx, bounce);
-      else
-        memset(bounce, 0, BLOCK_SECTOR_SIZE);
-      memcpy(bounce + sector_ofs, buffer + bytes_written, chunk_size);
-      block_write(fs_device, sector_idx, bounce);
+      cache_write(sector_idx, buffer + bytes_written, chunk_size, sector_ofs);
     }
 
     /* Advance. */
@@ -278,7 +430,6 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
     offset += chunk_size;
     bytes_written += chunk_size;
   }
-  free(bounce);
 
   return bytes_written;
 }
@@ -308,197 +459,10 @@ void inode_allow_write(struct inode* inode) {
 }
 
 /* Returns the length, in bytes, of INODE's data. */
-off_t inode_length(const struct inode* inode) { return inode->data->length; }
+off_t inode_length(const struct inode* inode) { return inode->data.length; }
 
-/* Allocates a disk sector and returns its number. */
-block_sector_t block_allocate() {
-  block_sector_t next_sector;
-  if (!free_map_allocate(1, &next_sector)) {
-    return -1;
-  }
-  return next_sector;
-}
+float get_buffer_accesses() { return cache_accesses; }
 
-/* Frees disk sector N*/
-void block_free(block_sector_t n) { free_map_release(n, 1); }
+float get_buffer_hits() { return cache_hits; }
 
-/* Grows or shrinks the inode based on the given size. */
-bool inode_resize(struct inode* inode, off_t size) {
-  struct inode_disk* data = inode->data;
-
-  /* Handle direct ptrs. */
-  for (int i = 0; i < 12; i++) {
-    if (size <= BLOCK_SECTOR_SIZE * i && data->direct[i] != 0) {
-      /* Shrink. */
-      block_free(data->direct[i]);
-      data->direct[i] = 0;
-    } else if (size > BLOCK_SECTOR_SIZE * i && data->direct[i] == 0) {
-      /* Grow. */
-      block_sector_t next = block_allocate();
-      if (next == -1)
-        return false;
-      data->direct[i] = next;
-    }
-  }
-
-  /* Check if indirect pointers are needed. */
-  if (data->indirect == 0 && size <= 12 * BLOCK_SECTOR_SIZE) {
-    data->length = size;
-    return true;
-  }
-  block_sector_t buffer[128];
-  memset(buffer, 0, 512);
-  if (data->indirect == 0) {
-    /* Allocate indirect block. */
-    block_sector_t next = block_allocate();
-    if (next == -1)
-      return false;
-    data->indirect = next;
-  } else {
-    /* Read in indirect block. */
-    block_read(fs_device, data->indirect, buffer);
-  }
-
-  /* Handle indirect ptrs. */
-  for (int i = 0; i < 128; i++) {
-    if (size <= (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] != 0) {
-      /* Shrink. */
-      block_free(buffer[i]);
-      buffer[i] = 0;
-    } else if (size > (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] == 0) {
-      /* Grow. */
-      block_sector_t next = block_allocate();
-      if (next == (block_sector_t)-1)
-        return false;
-      buffer[i] = next;
-    }
-  }
-  if (size <= 12 * BLOCK_SECTOR_SIZE) {
-    /* We shrank the inode such that indirect pointers are not required. */
-    block_free(data->indirect);
-    data->indirect = 0;
-  } else {
-    /* Write the updates to the indirect block back to disk. */
-    block_write(fs_device, data->indirect, buffer);
-  }
-  // if (!handle_indirect_ptrs(data, size)) return false;
-
-  /* Check if doubly indirect pointers are needed. */
-  if (data->doubly_indirect == 0 && size <= 12 * BLOCK_SECTOR_SIZE + (128 * BLOCK_SECTOR_SIZE)) {
-    data->length = size;
-    return true;
-  }
-  memset(buffer, 0, 512);
-  if (data->doubly_indirect == 0) {
-    /* Allocate doubly indirect block. */
-    block_sector_t next = block_allocate();
-    if (next == -1)
-      return false;
-    data->doubly_indirect = next;
-  } else {
-    /* Read in indirect block. */
-    block_read(fs_device, data->doubly_indirect, buffer);
-  }
-
-  /* Handle doubly indirect ptrs. */
-  for (int i = 0; i < 128; i++) {
-    if (size <= (12 + 128 + i) * BLOCK_SECTOR_SIZE && buffer[i] != 0) {
-      /* Shrink. */
-      block_free(buffer[i]);
-      buffer[i] = 0;
-    } else if (size > (12 + 128 + i) * BLOCK_SECTOR_SIZE && buffer[i] == 0) {
-      /* Grow. */
-      // Will need to read indirect block
-      block_sector_t ind_buffer[128];
-      memset(ind_buffer, 0, 512);
-      for (int j = 0; j < 128; j++) {
-        if (buffer[i] == 0) {
-          /* Allocate indirect block. */
-          block_sector_t next = block_allocate();
-          if (next == -1)
-            return false;
-          buffer[i] = next;
-        } else {
-          /* Read in indirect block. */
-          block_read(fs_device, buffer[i], ind_buffer);
-        }
-        // handle indirect ptrs within doubly indirect pointer
-        for (int k = 0; k < 128; k++) {
-          if (size <= (12 + 128 + j) * BLOCK_SECTOR_SIZE && ind_buffer[k] != 0) {
-            /* Shrink. */
-            block_free(ind_buffer[k]);
-            ind_buffer[k] = 0;
-          } else if (size > (12 + 128 + k) * BLOCK_SECTOR_SIZE && ind_buffer[k] == 0) {
-            /* Grow. */
-            block_sector_t next = block_allocate();
-            if (next == -1)
-              return false;
-            ind_buffer[k] = next;
-          }
-        }
-        if (size <= (12 + 128) * BLOCK_SECTOR_SIZE) {
-          /* We shrank the inode such that indirect pointers are not required. */
-          block_free(buffer[i]);
-          buffer[i] = 0;
-        } else {
-          /* Write the updates to the indirect block back to disk. */
-          block_write(fs_device, buffer[i], ind_buffer); // <-----
-        }
-      }
-    }
-  }
-  if (size <=
-      12 * BLOCK_SECTOR_SIZE + (128 * BLOCK_SECTOR_SIZE) + (128 * 128 * BLOCK_SECTOR_SIZE)) {
-    /* We shrank the inode such that doubly indirect pointers are not required. */
-    block_free(data->doubly_indirect);
-    data->doubly_indirect = 0;
-  } else {
-    /* Write the updates to the indirect block back to disk. */
-    block_write(fs_device, data->doubly_indirect, buffer);
-  }
-
-  data->length = size;
-  return true;
-}
-
-// bool handle_indirect_ptrs(struct inode_disk* data, block_sector_t* id, off_t size){
-//    /* Check if indirect pointers are needed. */
-//   if (*id == 0 && size <= 12 * BLOCK_SECTOR_SIZE) {
-//     data->length = size;
-//     return true;
-//   }
-//   block_sector_t buffer[128];
-//   memset(buffer, 0, 512);
-//   if (*id == 0) {
-//     /* Allocate indirect block. */
-//     block_sector_t next = block_allocate();
-//     if (next == -1) return false;
-//     *id = next;
-//   } else {
-//     /* Read in indirect block. */
-//     block_read(fs_device, *id, buffer);
-//   }
-
-//   /* Handle indirect ptrs. */
-//   for (int i = 0; i < 128; i++) {
-//     if (size <= (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] != 0) {
-//       /* Shrink. */
-//       block_free(buffer[i]);
-//       buffer[i] = 0;
-//     } else if (size > (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] == 0) {
-//       /* Grow. */
-//       block_sector_t next = block_allocate();
-//       if (next == -1) return false;
-//       buffer[i] = next;
-//     }
-//   }
-//   if (size <= 12 * BLOCK_SECTOR_SIZE) {
-//     /* We shrank the inode such that indirect pointers are not required. */
-//     block_free(*id);
-//     *id = 0;
-//     } else {
-//     /* Write the updates to the indirect block back to disk. */
-//     block_write(fs_device, *id, buffer);
-//   }
-//   return true;
-// }
+long get_device_writes() { return get_writes(fs_device); }

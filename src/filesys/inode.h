@@ -5,10 +5,21 @@
 #include <list.h>
 #include "filesys/off_t.h"
 #include "devices/block.h"
+#include <list.h>
 #include "threads/synch.h"
 
 struct bitmap;
 
+struct buffer_cache_elem {
+  block_sector_t sector;
+  void* buffer[BLOCK_SECTOR_SIZE];
+  struct lock block_lock;
+  bool dirty;
+  bool valid;
+  struct list_elem elem;
+};
+
+void cache_flush();
 void inode_init(void);
 bool inode_create(block_sector_t, off_t);
 struct inode* inode_open(block_sector_t);
