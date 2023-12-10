@@ -454,6 +454,7 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
     // lock_release(&inode->lock);
     return 0;
   }
+  //printf("MADE IT HERE");
   // inode_resize(inode, offset + size);
   while (size > 0) {
     /* Sector to write, starting byte offset within sector. */

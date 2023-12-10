@@ -223,6 +223,16 @@ static void start_process(void* i) {
     struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
     init_file_descriptor_list(fdt);
 
+    /* Initialize CWD */
+    if (t->pcb->parent != NULL) {
+      // if (t->pcb->parent->cwd == NULL)
+      //   printf("PROCESS MADE IT HERE");
+      t->pcb->cwd = t->pcb->parent->cwd;
+    } else {
+      t->pcb->cwd = dir_open_root();
+    }
+    // if (t->pcb->cwd == NULL)
+    //   printf("CWD NULL================");
     t->pcb->fileDescriptorTable = fdt;
   }
 

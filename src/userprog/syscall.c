@@ -1,3 +1,5 @@
+
+#include <string.h>
 #include "userprog/syscall.h"
 #include "threads/malloc.h"
 #include <stdbool.h>
@@ -12,6 +14,8 @@
 #include "filesys/file.h"
 #include <devices/shutdown.h>
 #include <float.h>
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 
 static void syscall_handler(struct intr_frame* f UNUSED);
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
@@ -28,6 +32,14 @@ bool remove(const char* file);
 bool create(const char* file, unsigned initialized_size);
 double compute_e(int n);
 double get_buffer_hitrate();
+bool chdir(const char* dir);
+bool mkdir(const char* dir);
+bool readdir(int fd, char* name);
+bool isdir(int fd);
+struct dir* resolve_path(const char* path_name);
+static int get_next_part(char part[NAME_MAX + 1], const char** srcp);
+int inumber(int fd);
+char* get_base_path(char* path, char last_name[NAME_MAX + 1]);
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -167,12 +179,234 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     f->eax = get_buffer_accesses();
   }
   if (args[0] == SYS_FLUSH) {
-    f->eax = cache_flush();
+    cache_flush();
+    //cache_flush();
   }
   if (args[0] == SYS_DEVICE_WRITES) {
     f->eax = get_device_writes();
   }
+
+  /* DIRECTORY SYSCALLS, validate pointers?*/
+  if (args[0] == SYS_CHDIR) {
+    f->eax = chdir(args[1]);
+  }
+  if (args[0] == SYS_MKDIR) {
+    f->eax = mkdir(args[1]);
+  }
+  if (args[0] == SYS_ISDIR) {
+    f->eax = isdir(args[1]);
+  }
+  if (args[0] == SYS_INUMBER) {
+    f->eax = inumber(args[1]);
+  }
 }
+
+/*DIRECTORY SYSCALLS*/
+
+/* Return inode number of inode associated with fd. */
+int inumber(int fd) {
+  struct fileDescriptor* file_desc = find_fd(fd);
+  if (file_desc->is_dir)
+    return inode_get_inumber(file_desc->dir->inode);
+  return inode_get_inumber(file_desc->file->inode);
+}
+
+/* Change CWD of process to dir (relative or absolute). Returns true on success, false on failure.*/
+bool chdir(const char* dir) {
+  struct dir* new_cwd = resolve_path(dir); //new_cwd should have been opened in resolve_path
+  if (new_cwd == NULL)
+    return false;
+  thread_current()->pcb->cwd = new_cwd;
+  //TODO: need to open new_cwd?
+  return true;
+}
+
+bool mkdir(const char* dir) {
+  //automatically make . and .. directories
+  char last_name[NAME_MAX + 1];
+  //char* copy_path = strdup(dir);
+  char copy_path[150];
+  strlcpy(copy_path, dir, strlen(dir) + 1);
+  //printf("copy_path: %s\n", copy_path);
+  char* base_path = get_base_path(&copy_path, &last_name);
+  //printf("last_name: %s\n", last_name);
+
+  //if base path null search cwd
+  struct dir* parent_dir;
+  if (base_path == NULL) {
+    //printf("MADE IT HERE");
+    parent_dir = thread_current()->pcb->cwd;
+    //if uninitialized, open root
+    if (!parent_dir)
+      parent_dir = dir_open_root();
+  } else
+    parent_dir = resolve_path(base_path);
+
+  //allocate and create the new directory
+  block_sector_t* sectorp = malloc(sizeof(block_sector_t));
+  if (!free_map_allocate(1, sectorp))
+    return false;
+  if (!dir_create(*sectorp, 0))
+    return false;
+
+  //create a dir struct
+  struct dir* new_dir = malloc(sizeof(dir));
+  new_dir->parent = parent_dir;
+  new_dir->inode = inode_open(*sectorp);
+  new_dir->pos = 0;
+
+  //add a fdt entry for this directory
+  struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+  lock_acquire(&(fdt->lock));
+  struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+  int new_fd = fdt->fdt_count;
+  new_entry->fd = new_fd;
+  new_entry->file = NULL;
+  new_entry->is_dir = true;
+  new_entry->dir = new_dir;
+  list_push_back(&fdt->lst, &new_entry->elem);
+  fdt->fdt_count++;
+  lock_release(&fdt->lock);
+  //add new dir entry to parent dir
+  // if (parent_dir == NULL)
+  if (!dir_add(parent_dir, last_name, parent_dir->inode->sector))
+    return false;
+  //printf("MADE IT HERE");
+
+  //printf("MADE IT HERE");
+  //add . and .. to new dir
+  free(sectorp);
+  //printf("MADE IT HERE");
+
+  /*THIS CODE IS FOR ADDING . AND .. TO THE NEW DIRECTORY*/
+
+  // if (dir_add(new_dir, ".", new_dir->inode->sector) && dir_add(new_dir, "..", new_dir->inode->sector)) {
+  //   //printf("MADE IT HERE");
+  //   return true;
+  // }
+  // if (!dir_add(new_dir, ".", new_dir->inode->sector)) {
+  //   printf("MADE IT HERE 1");
+  //   return false;
+  // }
+  // if (!dir_add(new_dir, "..", new_dir->inode->sector)) {
+  //   printf("MADE IT HERE 2");
+  //   return false;
+  // }
+  //printf("MADE IT HERE");
+
+  return true;
+}
+
+//this function is treated like an iterator
+bool readdir(int fd, char* name) {
+  struct fileDescriptor* file_desc = find_fd(fd);
+  if (!file_desc->is_dir)
+    return false;
+  return dir_readdir(file_desc->dir, name);
+}
+
+/* Returns true if fd corresponds to a directory, false if ordinary file. */
+bool isdir(int fd) {
+  struct fileDescriptor* file_desc = find_fd(fd);
+  return file_desc->is_dir;
+}
+
+/* Returns the base*/
+char* get_base_path(char* path, char last_name[NAME_MAX + 1]) {
+  //char last_name[NAME_MAX + 1];
+  char copy_path[150];
+  strlcpy(copy_path, path, strlen(path) + 1);
+  //printf("copy_path: %s\n", copy_path);
+  char dst[150];
+  int og_length = strlen(path) + 1;
+  int count = 0;
+  char* srcp = path;
+  //get_next_part(last_name, &srcp);
+  //printf("oglength: %d\n", og_length);
+  while (get_next_part(last_name, &srcp) == 1) {
+    count += 1;
+  }
+  //last_name contains the file name
+  //if the file name is the whole path, we search in cwd
+  if (strcmp(last_name, path) == 0)
+    return NULL;
+  int truncate = og_length - strlen(last_name) + 1;
+  // printf("last_name: %s\n", last_name);
+  // printf("truncate: %d\n", truncate);
+  if (truncate > 0 && path[truncate - 1] == '/') {
+    truncate--; // Exclude the trailing slash
+  }
+  //printf("path: %s\n", path);
+  path[truncate] = "\0";
+  //printf("path after truncate: %s\n", path);
+  //strcpy(dst, path);
+  strlcpy(dst, path, strlen(path));
+  //printf("dst: %s\n", dst);
+  return dst;
+}
+
+/* Helper function to resolve paths by traversing via dir_lookup*/
+struct dir* resolve_path(const char* path_name) { //path_name is the path the user passed in
+  struct dir* curr_dir;
+  if (path_name[0] == '/') {
+    curr_dir = dir_open_root(); // /home/user: what if home is the root dir
+  } else {
+    curr_dir = thread_current()->pcb->cwd;
+  }
+  //call get_next_path in a loop and look for that starting from current directory
+  //ERROR CHECKING: save getnextpart return int inside a variable, special behavior if -1 is returned
+  char name_part[NAME_MAX + 1];
+  char dup_path[150];
+  strlcpy(dup_path, *path_name, strlen(path_name));
+  //char* dup_path = strdup(path_name);
+  while (get_next_part(name_part, *dup_path) == 1 && curr_dir) {
+    struct inode** inode;
+    if (dir_lookup(curr_dir, &name_part, inode)) {
+      dir_close(curr_dir);
+      curr_dir = dir_open(*inode);
+      memset(name_part, 0, sizeof name_part);
+    } else {
+      curr_dir = NULL;
+    }
+  }
+  //if successful, curr_dir should contain the dir we want
+  return curr_dir;
+}
+
+/* Extracts a file name part from *SRCP into PART, and updates *SRCP so that the
+   next call will return the next file name part. Returns 1 if successful, 0 at
+   end of string, -1 for a too-long file name part. */
+static int get_next_part(char part[NAME_MAX + 1], const char** srcp) {
+  //printf("made it here");
+  const char* src = *srcp;
+  char* dst = part;
+  // printf("src: %s\n", src);
+  // printf("dst: %s\n", dst);
+
+  /* Skip leading slashes.  If it's all slashes, we're done. */
+  while (*src == '/')
+    src++;
+  if (*src == '\0')
+    return 0;
+
+  /* Copy up to NAME_MAX character from SRC to DST.  Add null terminator. */
+  while (*src != '/' && *src != '\0') {
+    if (dst < part + NAME_MAX)
+      *dst++ = *src;
+    else
+      return -1;
+    src++;
+  }
+  *dst = '\0';
+
+  /* Advance source pointer. */
+  *srcp = src;
+  // printf("src: %s\n", src);
+  // printf("dst: %s\n", dst);
+  return 1;
+}
+
+/* FILE SYSCALLS*/
 
 double compute_e(int n) { return (double)sys_sum_to_e(n); }
 
@@ -181,12 +415,17 @@ void close(int fd) {
   struct fileDescriptor* close_fd = find_fd(fd);
   if (close_fd == NULL)
     return;
-  //close file
-  file_close(close_fd->file);
-  //remove fd from fdt
-  lock_acquire(&thread_current()->pcb->fileDescriptorTable->lock);
-  list_remove(&close_fd->elem);
-  lock_release(&thread_current()->pcb->fileDescriptorTable->lock);
+  //if directory, just close it
+  if (close_fd->is_dir)
+    dir_close(close_fd->dir);
+  else {
+    //close file
+    file_close(close_fd->file);
+    //remove fd from fdt
+    lock_acquire(&thread_current()->pcb->fileDescriptorTable->lock);
+    list_remove(&close_fd->elem);
+    lock_release(&thread_current()->pcb->fileDescriptorTable->lock);
+  }
 }
 
 /*Returns the position of the next byte to be read or written in open file fd, expressed in bytes 
@@ -228,7 +467,8 @@ int write(int fd, const void* buffer, unsigned size) {
     return size;
   }
   struct fileDescriptor* open_fd = find_fd(fd);
-  if (open_fd == NULL) {
+  //fail if open_fd corresponds to a directory
+  if (open_fd == NULL || open_fd->is_dir) {
     return -1;
   }
   return file_write(open_fd->file, buffer, size);
@@ -238,7 +478,8 @@ int write(int fd, const void* buffer, unsigned size) {
 Returns the number of bytes actually read (0 at EOF), or -1 if failed. */
 int read(int fd, void* buffer, unsigned size) {
   struct fileDescriptor* read_fd = find_fd(fd);
-  if (read_fd == NULL)
+  //fail if read_fd corresponds to a directory
+  if (read_fd == NULL || read_fd->is_dir)
     return -1;
   return (int)file_read(read_fd->file, buffer, size);
 }
@@ -254,18 +495,39 @@ int filesize(int fd) {
 
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
-int open(const char* file) {
-  //open file
+int open(const char* file) { //TODO: MODIFY TO SUPPORT OPENING DIRECTORIES
+  //char* file_copy = strdup(file);
+  //COMMENTED CODE SUPPORT FOR DIRS
+  // char file_copy[150];
+  // strlcpy(file_copy, file, strlen(file) + 1);
+  // //printf("file: %s\n", file_copy);
+  // char last_name[NAME_MAX + 1];
+  // char* base_path = get_base_path(&file_copy, &last_name);
+  // if (base_path == NULL) {
+  //   struct file* opened = filesys_open(file);
+  //   if (opened == NULL) {
+  //     return -1;
+  // }
+  // }
+  // strlcpy(file_copy, file, strlen(file));
+  // struct dir* file_dir = resolve_path(file_copy);
+  // if (file_dir == NULL || !chdir(base_path))
+  //   return -1;
+  //printf("file: %s\n", file);
+  //open file (we've changed to the file's parent directory)
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
     return -1;
   }
+  //if opening a directory, resolve the
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
   lock_acquire(&(fdt->lock));
   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
   int new_fd = fdt->fdt_count;
   new_entry->fd = new_fd;
   new_entry->file = opened;
+  new_entry->is_dir = false;
+  new_entry->dir = NULL;
   list_push_back(&fdt->lst, &new_entry->elem);
   fdt->fdt_count++;
   lock_release(&fdt->lock);
@@ -273,7 +535,25 @@ int open(const char* file) {
 }
 
 /* Deletes the file named file. Returns true if successful, false otherwise. */
-bool remove(const char* file) { return filesys_remove(file); }
+bool remove(const char* file) {
+  bool success = false;
+  bool is_empty = true;
+  //either the file doesn't exist or it's a directory
+  //path resolve here before calling filesys remove?
+  if (!filesys_remove(file)) {
+    //figure out if a directory is empty
+    struct dir* curr_dir = resolve_path(file);
+    char name[NAME_MAX + 1];
+    while (dir_readdir(curr_dir, &name)) {
+      if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
+        return false;
+      }
+    }
+    char last_name[NAME_MAX + 1];
+    char* _ = get_base_path(file, &last_name);
+    dir_remove(curr_dir->parent, last_name);
+  }
+}
 
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
@@ -298,3 +578,57 @@ struct fileDescriptor* find_fd(int fd_val) {
   lock_release(&fdt->lock);
   return NULL;
 }
+
+// bool mkdir(const char* dir) {
+//   //automatically make . and .. directories
+//   char last_name[NAME_MAX + 1];
+//   char* dup_dir = strdup(dir);
+//   while(get_next_part(&last_name, &dup_dir) == 1);
+
+//   char name_part[NAME_MAX + 1];
+//   char* dup_path = strdup(dir);
+//   struct inode** inode;
+//   struct dir* curr_dir;
+//   if (strncmp(dir, "/", 1) == 0) {
+//     curr_dir = dir_open_root(); // /home/user: what if home is the root dir
+//   } else {
+//     curr_dir = thread_current()->pcb->cwd;
+//   }
+//   while (get_next_part(&name_part, &dup_path)) {
+//     if (strcmp(&name_part, &last_name) == 0)
+//       break;
+//     if (dir_lookup(curr_dir, &name_part, inode)) {
+//       dir_close(curr_dir);
+//       curr_dir = dir_open(*inode);
+//       memset(name_part, 0, sizeof name_part);
+//       //a directory doesn't exist in the middle of the path, FAIL
+//     } else {
+//       return false;
+//     }
+//   }
+//   //at this point last_name should contain the last directory name and curr_dir should be its parent
+//   //allocate and create the new directory
+//   block_sector_t *sectorp;
+//   if (!free_map_allocate(1, sectorp))
+//     return false;
+//   if (!dir_create(*sectorp, 0))
+//     return false;
+
+//   //create a dir struct
+//   struct dir* new_dir = calloc(1, sizeof *dir);
+//   new_dir->parent = curr_dir;
+//   new_dir->inode = inode_open(*sectorp);
+//   new_dir->pos = 0;
+
+//   //TODO: figure out where to add fdt entry for this directory
+
+//   //add new dir entry to parent dir
+//   if(!dir_add(curr_dir, &last_name, curr_dir->inode->sector))
+//     return false;
+
+//   //add . and .. to new dir
+//   if (!dir_add(new_dir, ".", *sectorp) || !dir_add(new_dir, "..", *sectorp))
+//     return false;
+
+//   return true;
+// }

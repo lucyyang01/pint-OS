@@ -100,13 +100,13 @@ bool dir_lookup(const struct dir* dir, const char* name, struct inode** inode) {
    Fails if NAME is invalid (i.e. too long) or a disk or memory
    error occurs. */
 bool dir_add(struct dir* dir, const char* name, block_sector_t inode_sector) {
+  //printf("MADE IT HERE");
   struct dir_entry e;
   off_t ofs;
   bool success = false;
 
   ASSERT(dir != NULL);
   ASSERT(name != NULL);
-
   /* Check NAME for validity. */
   if (*name == '\0' || strlen(name) > NAME_MAX)
     return false;
@@ -133,6 +133,9 @@ bool dir_add(struct dir* dir, const char* name, block_sector_t inode_sector) {
   success = inode_write_at(dir->inode, &e, sizeof e, ofs) == sizeof e;
 
 done:
+  //printf("MADE IT HERE");
+  // if (!success)
+  //   printf("MADE IT HERE");
   return success;
 }
 

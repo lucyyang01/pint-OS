@@ -5,6 +5,7 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/synch.h"
+#include <stdbool.h>
 
 static struct file* free_map_file; /* Free map file. */
 static struct bitmap* free_map;    /* Free map, one bit per sector. */
@@ -65,22 +66,22 @@ void free_map_open(void) {
     PANIC("can't read free map");
     // lock_release(&free_map_lock);
   }
+}
 
-  /* Writes the free map to disk and closes the free map file. */
-  void free_map_close(void) {
-    // lock_acquire(&free_map_lock);
-    file_close(free_map_file);
-    // lock_release(&free_map_lock);
-  }
+/* Writes the free map to disk and closes the free map file. */
+void free_map_close(void) {
+  // lock_acquire(&free_map_lock);
+  file_close(free_map_file);
+  // lock_release(&free_map_lock);
+}
 
-  /* Creates a new free map file on disk and writes the free map to
+/* Creates a new free map file on disk and writes the free map to
    it. */
-  void free_map_create(void) {
-    /* Create inode. */
-    // lock_acquire(&free_map_lock);
-    if (!inode_create(FREE_MAP_SECTOR, bitmap_file_size(free_map)))
-      PANIC("free map creation failed");
-  }
+void free_map_create(void) {
+  /* Create inode. */
+  // lock_acquire(&free_map_lock);
+  if (!inode_create(FREE_MAP_SECTOR, bitmap_file_size(free_map)))
+    PANIC("free map creation failed");
 
   /* Write bitmap to file. */
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
@@ -95,3 +96,4 @@ void free_map_open(void) {
     PANIC("can't write free map");
     // lock_release(&free_map_lock);
   }
+}
