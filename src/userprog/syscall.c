@@ -224,9 +224,11 @@ bool chdir(const char* dir) {
 bool mkdir(const char* dir) {
   // //automatically make . and .. directories
   //printf("MADE IT HERE=========");
+  if (strlen(dir) == 0)
+    return false;
   char last_name[NAME_MAX + 1];
-  char copy_path[150];
-  strlcpy(copy_path, dir, strlen(dir) + 1);
+  // char copy_path[150];
+  // strlcpy(copy_path, dir, strlen(dir) + 1);
   //printf("copy_path: %s\n", copy_path);
   char* base_path = get_base_path(dir, &last_name);
   //printf("last_name: %s\n", last_name);
@@ -259,6 +261,7 @@ bool mkdir(const char* dir) {
   new_dir->parent = parent_dir;
   new_dir->inode = inode_open(sectorp);
   new_dir->pos = 0;
+  new_dir->inode->data.is_dir = true;
 
   //add a fdt entry for this directory
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
@@ -474,48 +477,42 @@ int filesize(int fd) {
 
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
-int open(const char* file) { //TODO: MODIFY TO SUPPORT OPENING DIRECTORIES
-  //COMMENTED CODE SUPPORT FOR DIRS
-  // char file_copy[150];
-  // strlcpy(file_copy, file, strlen(file) + 1);
-  // //printf("file: %s\n", file_copy);
-
-  //opening the root directory
-  // struct dir* dir;
-  // struct file* result;
-  // if (!strcmp(file, "/")) {
-  //   dir = dir_open_root();
-  //   result = file_open(dir_get_inode(dir));
-  //   //close root
-  //   dir_close(dir);
-  //   return result;
-  // }
-
-  // char last_name[NAME_MAX + 1];
-  // char* base_path = get_base_path(file, last_name);
-  // if (base_path == NULL ) { //the path is just the name of the file, so search in cwd
-  //   if (!thread_current()->pcb->cwd)
-  //     dir = dir_open_root();
-  //     //result = filesys_open(file)
-  //   else
-  //     dir = resolve_path(base_path);
-
-  //   //open the file
-  //   //result = file_open(dir_get_inode
-
-  //   if (result == NULL)
-  //     return -1;
-  //   return result;
-  // }
-  // struct dir* file_dir = resolve_path(base_path);
-  // if (file_dir == NULL || !chdir(base_path))
-  //   return -1;
-  //printf("file: %s\n", file);
-  //open file (we've changed to the file's parent directory)
-  //printf("REACHED OPEN======");
+int open(const char* file) {
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
-    return -1;
+    char last_name[NAME_MAX + 1];
+    char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
+    struct dir* dir;
+    ///////c base c: last : c
+    if (base_path == NULL) { //the path is just the name of the file, so search in cwd
+      if (!thread_current()->pcb->cwd)
+        dir = dir_open_root();
+      else
+        dir = dir_reopen(thread_current()->pcb->cwd);
+    } else
+      dir = resolve_path(base_path); //a/b
+    if (dir == NULL)
+      return -1;
+    //printf("MADE IT HERE======");
+    struct inode* inode = dir_get_inode(dir);
+    if (inode->data.is_dir) {
+      //find the fd corresponding to the directory
+      int fd_from_dir = -1;
+      struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+      lock_acquire(&fdt->lock);
+      struct list_elem* el;
+      for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
+        struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
+        if (fileDescriptor_entry->dir == dir) {
+          fd_from_dir = fileDescriptor_entry->fd;
+          lock_release(&fdt->lock);
+        }
+      }
+      lock_release(&fdt->lock);
+      file_open(inode);
+      return fd_from_dir;
+    } else
+      return -1;
   }
   //if opening a directory, resolve the
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
@@ -530,6 +527,77 @@ int open(const char* file) { //TODO: MODIFY TO SUPPORT OPENING DIRECTORIES
   fdt->fdt_count++;
   lock_release(&fdt->lock);
   return new_fd;
+
+  //opening the root directory
+
+  //TODO: how to tell if we want to open a dir or a file?
+  // struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+  // struct dir* dir;
+  // struct file* result;
+  // if (!strcmp(file, "/")) {
+  //   dir = dir_open_root();
+  //   result = file_open(dir_get_inode(dir));
+  //   //close root
+  //   dir_close(dir);
+  //   return result; //TODO: where do i add the fdt entry for the root directory?
+  // }
+
+  // char last_name[NAME_MAX + 1];
+  // char* base_path = get_base_path(file, last_name);
+  // // printf("last_name: %s\n", last_name);
+  // // printf("base_path: %s\n", base_path);
+
+  // if (base_path == NULL ) { //the path is just the name of the file, so search in cwd
+  //   if (!thread_current()->pcb->cwd)
+  //     dir = dir_open_root();
+  //     //result = filesys_open(file)
+  //   else
+  //     dir = resolve_path(base_path);
+  // struct inode* inode = dir_get_inode(dir);
+  // if (inode->data.is_dir) {
+  //   //find the fd corresponding to the directory
+  //   int fd_from_dir;
+  //   lock_acquire(&fdt->lock);
+  //   struct list_elem* el;
+  //   for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
+  //     struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
+  //     if (fileDescriptor_entry->dir == dir) {
+  //       fd_from_dir = fileDescriptor_entry->fd;
+  //       lock_release(&fdt->lock);
+  //     }
+  //   }
+  //   lock_release(&fdt->lock);
+  //   //open the directory
+  //   file_open(inode);
+  //   return fd_from_dir;
+  // } else {
+  //   struct file* opened = filesys_open(file);
+  //   if (opened == NULL) {
+  //     return -1;
+  //   }
+  //   //if opening a directory, resolve the
+  //   lock_acquire(&(fdt->lock));
+  //   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+  //   int new_fd = fdt->fdt_count;
+  //   new_entry->fd = new_fd;
+  //   new_entry->file = opened;
+  //   new_entry->is_dir = false;
+  //   new_entry->dir = NULL;
+  //   list_push_back(&fdt->lst, &new_entry->elem);
+  //   fdt->fdt_count++;
+  //   lock_release(&fdt->lock);
+  //   return new_fd;
+  // }
+  //   //open the file
+
+  // //   if (result == NULL)
+  // //     return -1;
+  // //   return result;
+  // // }
+  // //printf("file: %s\n", file);
+  // //open file (we've changed to the file's parent directory)
+  // //printf("REACHED OPEN======");
+  // }
 }
 
 /* Deletes the file named file. Returns true if successful, false otherwise. */

@@ -12,12 +12,13 @@ struct bitmap;
 
 struct inode_disk {
   // block_sector_t start; /* First data sector. */
+  bool is_dir;    /* True if inode corresponds to directory */
   off_t length;   /* File size in bytes. */
   unsigned magic; /* Magic number. */
   block_sector_t direct[12];
   block_sector_t indirect;
   block_sector_t double_indirect;
-  uint32_t unused[112]; /* Not used. */
+  uint32_t unused[111]; /* Not used. */
 };
 
 struct buffer_cache_elem {
