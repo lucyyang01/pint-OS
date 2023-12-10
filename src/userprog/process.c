@@ -34,6 +34,18 @@ void init_file_descriptor_list(struct fileDescriptor_list* fdt) {
   list_init(&(fdt->lst));
   lock_init(&(fdt->lock));
   fdt->fdt_count = 3;
+  thread_current()->pcb->fileDescriptorTable = fdt;
+  fdt = thread_current()->pcb->fileDescriptorTable;
+  lock_acquire(&(fdt->lock));
+  struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+  int new_fd = fdt->fdt_count;
+  new_entry->fd = new_fd;
+  new_entry->file = NULL;
+  new_entry->is_dir = true;
+  new_entry->dir = dir_open_root();
+  list_push_back(&fdt->lst, &new_entry->elem);
+  fdt->fdt_count++;
+  lock_release(&fdt->lock);
 }
 
 /* Initializes user programs in the system by ensuring the main
@@ -68,6 +80,15 @@ void userprog_init(void) {
   /* Child Processes */
 
   list_init(&t->pcb->children);
+
+  //  /* Initialize CWD */
+  // if (t->pcb->parent != NULL) {
+  //   // if (t->pcb->parent->cwd == NULL)
+  //   //   printf("PROCESS MADE IT HERE");
+  //   t->pcb->cwd = t->pcb->parent->cwd;
+  // } else {
+  //   t->pcb->cwd = dir_open_root();
+  // }
 
   /* Reference Count*/
   t->pcb->ref_count = 2;
@@ -222,8 +243,11 @@ static void start_process(void* i) {
     /* File Descriptor Table */
     struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
     init_file_descriptor_list(fdt);
+    //t->pcb->fileDescriptorTable = fdt;
 
-    /* Initialize CWD */
+    //struct dir* dir = dir_open_root();
+
+    //  /* Initialize CWD */
     if (t->pcb->parent != NULL) {
       // if (t->pcb->parent->cwd == NULL)
       //   printf("PROCESS MADE IT HERE");
@@ -231,9 +255,10 @@ static void start_process(void* i) {
     } else {
       t->pcb->cwd = dir_open_root();
     }
+
     // if (t->pcb->cwd == NULL)
     //   printf("CWD NULL================");
-    t->pcb->fileDescriptorTable = fdt;
+    // printf("HELLO I MADE IT HERE========");
   }
 
   char* programcopy = file_name;

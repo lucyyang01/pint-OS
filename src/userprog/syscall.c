@@ -478,19 +478,22 @@ int filesize(int fd) {
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
 int open(const char* file) {
+  if (strlen(file) == 0)
+    return -1;
   struct file* opened = filesys_open(file);
-  if (opened == NULL) {
+  if (opened == NULL || opened->inode->data.is_dir) {
     char last_name[NAME_MAX + 1];
     char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
     struct dir* dir;
     ///////c base c: last : c
+    //TODO: special behavior for root if fdt iteration doesn't work
     if (base_path == NULL) { //the path is just the name of the file, so search in cwd
       if (!thread_current()->pcb->cwd)
         dir = dir_open_root();
       else
         dir = dir_reopen(thread_current()->pcb->cwd);
-    } else
-      dir = resolve_path(base_path); //a/b
+    }
+    dir = resolve_path(file); //a/b
     if (dir == NULL)
       return -1;
     //printf("MADE IT HERE======");
@@ -503,9 +506,9 @@ int open(const char* file) {
       struct list_elem* el;
       for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
         struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
-        if (fileDescriptor_entry->dir == dir) {
+        if (dir_get_inode(fileDescriptor_entry->dir) == dir_get_inode(dir)) {
           fd_from_dir = fileDescriptor_entry->fd;
-          lock_release(&fdt->lock);
+          //lock_release(&fdt->lock);
         }
       }
       lock_release(&fdt->lock);
