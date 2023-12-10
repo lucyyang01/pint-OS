@@ -288,6 +288,8 @@ bool inode_create(block_sector_t sector, off_t length) {
     //   free(disk_inode);
     //   return false;
     // }
+    if (sector == ROOT_DIR_SECTOR)
+      disk_inode->is_dir = true;
     size_t sectors = bytes_to_sectors(length);
     disk_inode->length = length;
     disk_inode->magic = INODE_MAGIC;

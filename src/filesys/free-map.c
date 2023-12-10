@@ -4,6 +4,8 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
+#include "threads/synch.h"
+#include <stdbool.h>
 
 static struct file* free_map_file; /* Free map file. */
 static struct bitmap* free_map;    /* Free map, one bit per sector. */
@@ -33,6 +35,8 @@ bool free_map_allocate(size_t cnt, block_sector_t* sectorp) {
     bitmap_set_multiple(free_map, sector, cnt, false);
     sector = BITMAP_ERROR;
   }
+  // release free map lock
+  //lock_release(&free_map_lock);
   if (sector != BITMAP_ERROR)
     *sectorp = sector;
   lock_release(&free_map_lock);
@@ -54,8 +58,13 @@ void free_map_open(void) {
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
   if (free_map_file == NULL)
     PANIC("can't open free map");
-  if (!bitmap_read(free_map, free_map_file))
+  // acquire free map lock
+  //lock_acquire(&free_map_lock);
+  if (!bitmap_read(free_map, free_map_file)) {
+    // release free map lock
+    //lock_release(&free_map_lock);
     PANIC("can't read free map");
+  }
   lock_release(&free_map_lock);
 }
 
@@ -76,9 +85,15 @@ void free_map_create(void) {
 
   /* Write bitmap to file. */
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
-  if (free_map_file == NULL)
+  if (free_map_file == NULL) {
+    // release free map lock
+    //lock_release(&free_map_lock);
     PANIC("can't open free map");
-  if (!bitmap_write(free_map, free_map_file))
+  }
+  if (!bitmap_write(free_map, free_map_file)) {
+    // release free map lock
+    //lock_release(&free_map_lock);
     PANIC("can't write free map");
-  // lock_release(&free_map_lock);
+    // lock_release(&free_map_lock);
+  }
 }

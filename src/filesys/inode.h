@@ -2,6 +2,7 @@
 #define FILESYS_INODE_H
 
 #include <stdbool.h>
+#include <list.h>
 #include "filesys/off_t.h"
 #include "devices/block.h"
 #include <list.h>
@@ -11,12 +12,13 @@ struct bitmap;
 
 struct inode_disk {
   // block_sector_t start; /* First data sector. */
+  bool is_dir;    /* True if inode corresponds to directory */
   off_t length;   /* File size in bytes. */
   unsigned magic; /* Magic number. */
   block_sector_t direct[12];
   block_sector_t indirect;
   block_sector_t double_indirect;
-  uint32_t unused[112]; /* Not used. */
+  uint32_t unused[111]; /* Not used. */
 };
 
 struct buffer_cache_elem {
@@ -53,5 +55,6 @@ off_t inode_write_at(struct inode*, const void*, off_t size, off_t offset);
 void inode_deny_write(struct inode*);
 void inode_allow_write(struct inode*);
 off_t inode_length(const struct inode*);
+//bool create_indirect(struct inode_disk*, off_t);
 
 #endif /* filesys/inode.h */

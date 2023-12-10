@@ -6,19 +6,6 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
-/* A directory. */
-struct dir {
-  struct inode* inode; /* Backing store. */
-  off_t pos;           /* Current position. */
-};
-
-/* A single directory entry. */
-struct dir_entry {
-  block_sector_t inode_sector; /* Sector number of header. */
-  char name[NAME_MAX + 1];     /* Null terminated file name. */
-  bool in_use;                 /* In use or free? */
-};
-
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool dir_create(block_sector_t sector, size_t entry_cnt) {
@@ -78,6 +65,7 @@ static bool lookup(const struct dir* dir, const char* name, struct dir_entry* ep
   ASSERT(name != NULL);
 
   for (ofs = 0; inode_read_at(dir->inode, &e, sizeof e, ofs) == sizeof e; ofs += sizeof e)
+    //printf("Read dir entry %i", ofs/ sizeof e);
     if (e.in_use && !strcmp(name, e.name)) {
       if (ep != NULL)
         *ep = e;
@@ -113,13 +101,13 @@ bool dir_lookup(const struct dir* dir, const char* name, struct inode** inode) {
    Fails if NAME is invalid (i.e. too long) or a disk or memory
    error occurs. */
 bool dir_add(struct dir* dir, const char* name, block_sector_t inode_sector) {
+  //printf("MADE IT HERE");
   struct dir_entry e;
   off_t ofs;
   bool success = false;
 
   ASSERT(dir != NULL);
   ASSERT(name != NULL);
-
   /* Check NAME for validity. */
   if (*name == '\0' || strlen(name) > NAME_MAX)
     return false;
@@ -146,6 +134,9 @@ bool dir_add(struct dir* dir, const char* name, block_sector_t inode_sector) {
   success = inode_write_at(dir->inode, &e, sizeof e, ofs) == sizeof e;
 
 done:
+  //printf("CHDIR MADE IT HERE");
+  // if (!success)
+  //   printf("MADE IT HERE");
   return success;
 }
 

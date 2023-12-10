@@ -7,11 +7,14 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "filesys/inode.h"
+#include <stdbool.h>
+#include "userprog/process.h"
 
 /* Partition that contains the file system. */
 struct block* fs_device;
 
 static void do_format(void);
+//bool filesys_create(const char* name, off_t initial_size, bool is_dir);
 
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
@@ -41,9 +44,15 @@ void filesys_done(void) {
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
-bool filesys_create(const char* name, off_t initial_size) {
+bool filesys_create(const char* name, off_t initial_size, bool isdir) {
   block_sector_t inode_sector = 0;
-  struct dir* dir = dir_open_root();
+  struct dir* dir;
+  if (isdir) {
+    char last_name[NAME_MAX + 1];
+    char* base_path = get_base_path(name, last_name);
+    dir = resolve_path(base_path);
+  } else
+    dir = dir_open_root();
   bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
                   inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
   if (!success && inode_sector != 0)
@@ -87,6 +96,25 @@ static void do_format(void) {
   free_map_create();
   if (!dir_create(ROOT_DIR_SECTOR, 16))
     PANIC("root directory creation failed");
+  // struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+
+  // lock_acquire(&(fdt->lock));
+  // struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+  // int new_fd = fdt->fdt_count;
+  // new_entry->fd = new_fd;
+  // new_entry->file = NULL;
+  // new_entry->is_dir = true;
+  // new_entry->dir = dir_open_root();
+  // list_push_back(&fdt->lst, &new_entry->elem);
+  // fdt->fdt_count++;
+  // lock_release(&fdt->lock);
+  // struct dir* root_dir = dir_open_root();
+  // struct inode* root_inode = dir_get_inode(root_dir);
+  // if (!root_inode)
+  //   printf("ROOT INODE IS NULL======");
+  // root_inode->data.is_dir = true;
+  // dir_close(root_dir);
+
   free_map_close();
   printf("done.\n");
 }

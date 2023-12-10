@@ -38,6 +38,7 @@ struct process {
   pid_t pid;
   bool waited;
   struct file* f;
+  struct dir* cwd; /* Pointer to cwd, what should this be initialized to? */
 };
 
 /*children list elmenent*/
@@ -58,7 +59,9 @@ struct fileDescriptor_list {
 
 struct fileDescriptor {
   int fd;
+  bool is_dir;
   struct file* file;
+  struct dir* dir;
   struct list_elem elem;
 };
 
