@@ -39,8 +39,8 @@ bool isdir(int fd);
 struct dir* resolve_path(const char* path_name);
 static int get_next_part(char part[NAME_MAX + 1], const char** srcp);
 int inumber(int fd);
+//char* get_base_path(char* path, char last_name[NAME_MAX + 1]);
 char* get_base_path(char* path, char last_name[NAME_MAX + 1]);
-
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
 
@@ -217,19 +217,22 @@ bool chdir(const char* dir) {
   if (new_cwd == NULL)
     return false;
   thread_current()->pcb->cwd = new_cwd;
-  //TODO: need to open new_cwd?
+  printf("CHDIR SUCCEEDED=======");
   return true;
 }
 
 bool mkdir(const char* dir) {
-  //automatically make . and .. directories
+  // //automatically make . and .. directories
   char last_name[NAME_MAX + 1];
-  //char* copy_path = strdup(dir);
   char copy_path[150];
   strlcpy(copy_path, dir, strlen(dir) + 1);
-  //printf("copy_path: %s\n", copy_path);
-  char* base_path = get_base_path(&copy_path, &last_name);
+  // printf("copy_path: %s\n", copy_path);
+  char* base_path = get_base_path(dir, &last_name);
   //printf("last_name: %s\n", last_name);
+  //printf("base path: %s\n", base_path);
+  // struct dir* curr_dir;
+
+  // a/b/c    base path: a/b/ last_name : c
 
   //if base path null search cwd
   struct dir* parent_dir;
@@ -317,58 +320,58 @@ char* get_base_path(char* path, char last_name[NAME_MAX + 1]) {
   char copy_path[150];
   strlcpy(copy_path, path, strlen(path) + 1);
   //printf("copy_path: %s\n", copy_path);
-  char dst[150];
-  int og_length = strlen(path) + 1;
+  int og_length = strlen(path);
   int count = 0;
   char* srcp = path;
+  //char* dst;
   //get_next_part(last_name, &srcp);
-  //printf("oglength: %d\n", og_length);
+  // printf("oglength: %d\n", og_length);
   while (get_next_part(last_name, &srcp) == 1) {
     count += 1;
   }
   //last_name contains the file name
   //if the file name is the whole path, we search in cwd
-  if (strcmp(last_name, path) == 0)
+  if (strcmp(last_name, copy_path) == 0)
     return NULL;
-  int truncate = og_length - strlen(last_name) + 1;
-  // printf("last_name: %s\n", last_name);
+  //printf("len last name %d\n", strlen(last_name));
+  int truncate = (og_length)-strlen(last_name);
+  //printf("last_name: %s\n", last_name);
   // printf("truncate: %d\n", truncate);
-  if (truncate > 0 && path[truncate - 1] == '/') {
-    truncate--; // Exclude the trailing slash
-  }
-  //printf("path: %s\n", path);
-  path[truncate] = "\0";
-  //printf("path after truncate: %s\n", path);
-  //strcpy(dst, path);
-  strlcpy(dst, path, strlen(path));
-  //printf("dst: %s\n", dst);
+  //printf("copy path: %s\n", copy_path);
+  copy_path[truncate] = '\0';
+  //printf("cpy path after truncate: %s\n", copy_path);
+  char* dst = (char*)malloc(strlen(copy_path) + 1);
+  strlcpy(dst, copy_path, strlen(copy_path) + 1);
+  printf("dst: %s\n", dst);
   return dst;
 }
 
 /* Helper function to resolve paths by traversing via dir_lookup*/
 struct dir* resolve_path(const char* path_name) { //path_name is the path the user passed in
   struct dir* curr_dir;
-  if (path_name[0] == '/') {
+  if (path_name[0] == '/' || thread_current()->pcb->cwd == NULL) {
     curr_dir = dir_open_root(); // /home/user: what if home is the root dir
   } else {
     curr_dir = thread_current()->pcb->cwd;
   }
-  //call get_next_path in a loop and look for that starting from current directory
-  //ERROR CHECKING: save getnextpart return int inside a variable, special behavior if -1 is returned
   char name_part[NAME_MAX + 1];
-  char dup_path[150];
-  strlcpy(dup_path, *path_name, strlen(path_name));
+  // strlcpy(dup_path, *path_name, strlen(path_name) + 1);
   //char* dup_path = strdup(path_name);
-  while (get_next_part(name_part, *dup_path) == 1 && curr_dir) {
-    struct inode** inode;
-    if (dir_lookup(curr_dir, &name_part, inode)) {
+  char* srcp = path_name;
+  while (get_next_part(name_part, &srcp) == 1 && curr_dir) {
+    struct inode* inode;
+    printf("name_part: %s\n", name_part);
+    if (dir_lookup(curr_dir, name_part, &inode)) {
+      printf("DIR_LOOKUP FOUND THE DIR");
       dir_close(curr_dir);
-      curr_dir = dir_open(*inode);
-      memset(name_part, 0, sizeof name_part);
+      curr_dir = dir_open(inode);
+      //memset(name_part, 0, sizeof name_part);
     } else {
+      printf("DIR_LOOKUP RETURNED FALSE");
       curr_dir = NULL;
     }
   }
+  printf("MADE IT TO RESOLVE PATH");
   //if successful, curr_dir should contain the dir we want
   return curr_dir;
 }
@@ -377,11 +380,8 @@ struct dir* resolve_path(const char* path_name) { //path_name is the path the us
    next call will return the next file name part. Returns 1 if successful, 0 at
    end of string, -1 for a too-long file name part. */
 static int get_next_part(char part[NAME_MAX + 1], const char** srcp) {
-  //printf("made it here");
   const char* src = *srcp;
   char* dst = part;
-  // printf("src: %s\n", src);
-  // printf("dst: %s\n", dst);
 
   /* Skip leading slashes.  If it's all slashes, we're done. */
   while (*src == '/')
@@ -401,8 +401,7 @@ static int get_next_part(char part[NAME_MAX + 1], const char** srcp) {
 
   /* Advance source pointer. */
   *srcp = src;
-  // printf("src: %s\n", src);
-  // printf("dst: %s\n", dst);
+
   return 1;
 }
 
@@ -515,6 +514,7 @@ int open(const char* file) { //TODO: MODIFY TO SUPPORT OPENING DIRECTORIES
   //   return -1;
   //printf("file: %s\n", file);
   //open file (we've changed to the file's parent directory)
+  printf("REACHED OPEN======");
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
     return -1;
@@ -550,14 +550,24 @@ bool remove(const char* file) {
       }
     }
     char last_name[NAME_MAX + 1];
-    char* _ = get_base_path(file, &last_name);
+    char* base_path = get_base_path(file, last_name);
     dir_remove(curr_dir->parent, last_name);
   }
+  return true;
 }
 
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
 bool create(const char* file, unsigned initialized_size) {
+  // char last_name[NAME_MAX + 1];
+  // printf("file: %s\n", file);
+  // char* base_path = get_base_path(file, last_name);
+  // struct dir* dir = resolve_path(base_path);
+  // if (!dir)
+  //   return false;
+
+  // printf("WEFHWIFEHlast_name: %s\n", last_name);
+  // printf("base_path: %s\n", base_path);
   return filesys_create(file, initialized_size);
 }
 
@@ -632,3 +642,24 @@ struct fileDescriptor* find_fd(int fd_val) {
 
 //   return true;
 // }
+
+// if (dir[0] == '/' || thread_current()->pcb->cwd == NULL) {
+//   curr_dir = dir_open_root(); // /home/user: what if home is the root dir
+// } else {
+//   curr_dir = thread_current()->pcb->cwd;
+// }
+// char name_part[NAME_MAX + 1];
+// char * srcp = dir;
+// while (get_next_part(name_part, srcp) == 1 && curr_dir) {
+//   struct inode** inode;
+//   if (dir_lookup(curr_dir, &name_part, inode)) {
+//     dir_close(curr_dir);
+//     curr_dir = dir_open(*inode);
+//     //memset(name_part, 0, sizeof name_part);
+//   } else {
+//     curr_dir = NULL;
+//   }
+// }
+
+// if (!curr_dir)
+//   return false;
