@@ -223,13 +223,14 @@ bool chdir(const char* dir) {
 
 bool mkdir(const char* dir) {
   // //automatically make . and .. directories
+  printf("MADE IT HERE=========");
   char last_name[NAME_MAX + 1];
   char copy_path[150];
   strlcpy(copy_path, dir, strlen(dir) + 1);
-  // printf("copy_path: %s\n", copy_path);
+  printf("copy_path: %s\n", copy_path);
   char* base_path = get_base_path(dir, &last_name);
-  //printf("last_name: %s\n", last_name);
-  //printf("base path: %s\n", base_path);
+  printf("last_name: %s\n", last_name);
+  printf("base path: %s\n", base_path);
   // struct dir* curr_dir;
 
   // a/b/c    base path: a/b/ last_name : c
@@ -246,16 +247,17 @@ bool mkdir(const char* dir) {
     parent_dir = resolve_path(base_path);
 
   //allocate and create the new directory
-  block_sector_t* sectorp = malloc(sizeof(block_sector_t));
-  if (!free_map_allocate(1, sectorp))
+  //block_sector_t* sectorp = malloc(sizeof(block_sector_t));
+  block_sector_t sectorp;
+  if (!free_map_allocate(1, &sectorp))
     return false;
-  if (!dir_create(*sectorp, 0))
+  if (!dir_create(sectorp, 16))
     return false;
 
   //create a dir struct
   struct dir* new_dir = malloc(sizeof(dir));
   new_dir->parent = parent_dir;
-  new_dir->inode = inode_open(*sectorp);
+  new_dir->inode = inode_open(sectorp);
   new_dir->pos = 0;
 
   //add a fdt entry for this directory
@@ -272,30 +274,8 @@ bool mkdir(const char* dir) {
   lock_release(&fdt->lock);
   //add new dir entry to parent dir
   // if (parent_dir == NULL)
-  if (!dir_add(parent_dir, last_name, parent_dir->inode->sector))
+  if (!dir_add(parent_dir, last_name, new_dir->inode->sector))
     return false;
-  //printf("MADE IT HERE");
-
-  //printf("MADE IT HERE");
-  //add . and .. to new dir
-  free(sectorp);
-  //printf("MADE IT HERE");
-
-  /*THIS CODE IS FOR ADDING . AND .. TO THE NEW DIRECTORY*/
-
-  // if (dir_add(new_dir, ".", new_dir->inode->sector) && dir_add(new_dir, "..", new_dir->inode->sector)) {
-  //   //printf("MADE IT HERE");
-  //   return true;
-  // }
-  // if (!dir_add(new_dir, ".", new_dir->inode->sector)) {
-  //   printf("MADE IT HERE 1");
-  //   return false;
-  // }
-  // if (!dir_add(new_dir, "..", new_dir->inode->sector)) {
-  //   printf("MADE IT HERE 2");
-  //   return false;
-  // }
-  //printf("MADE IT HERE");
 
   return true;
 }
@@ -360,18 +340,18 @@ struct dir* resolve_path(const char* path_name) { //path_name is the path the us
   char* srcp = path_name;
   while (get_next_part(name_part, &srcp) == 1 && curr_dir) {
     struct inode* inode;
-    printf("name_part: %s\n", name_part);
+    //printf("name_part: %s\n", name_part);
     if (dir_lookup(curr_dir, name_part, &inode)) {
-      printf("DIR_LOOKUP FOUND THE DIR");
+      //printf("DIR_LOOKUP FOUND THE DIR");
       dir_close(curr_dir);
       curr_dir = dir_open(inode);
       //memset(name_part, 0, sizeof name_part);
     } else {
-      printf("DIR_LOOKUP RETURNED FALSE");
+      //printf("DIR_LOOKUP RETURNED FALSE");
       curr_dir = NULL;
     }
   }
-  printf("MADE IT TO RESOLVE PATH");
+  //printf("MADE IT TO RESOLVE PATH");
   //if successful, curr_dir should contain the dir we want
   return curr_dir;
 }
@@ -495,26 +475,44 @@ int filesize(int fd) {
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
 int open(const char* file) { //TODO: MODIFY TO SUPPORT OPENING DIRECTORIES
-  //char* file_copy = strdup(file);
   //COMMENTED CODE SUPPORT FOR DIRS
   // char file_copy[150];
   // strlcpy(file_copy, file, strlen(file) + 1);
   // //printf("file: %s\n", file_copy);
+
+  //opening the root directory
+  // struct dir* dir;
+  // struct file* result;
+  // if (!strcmp(file, "/")) {
+  //   dir = dir_open_root();
+  //   result = file_open(dir_get_inode(dir));
+  //   //close root
+  //   dir_close(dir);
+  //   return result;
+  // }
+
   // char last_name[NAME_MAX + 1];
-  // char* base_path = get_base_path(&file_copy, &last_name);
-  // if (base_path == NULL) {
-  //   struct file* opened = filesys_open(file);
-  //   if (opened == NULL) {
+  // char* base_path = get_base_path(file, last_name);
+  // if (base_path == NULL ) { //the path is just the name of the file, so search in cwd
+  //   if (!thread_current()->pcb->cwd)
+  //     dir = dir_open_root();
+  //     //result = filesys_open(file)
+  //   else
+  //     dir = resolve_path(base_path);
+
+  //   //open the file
+  //   //result = file_open(dir_get_inode
+
+  //   if (result == NULL)
   //     return -1;
+  //   return result;
   // }
-  // }
-  // strlcpy(file_copy, file, strlen(file));
-  // struct dir* file_dir = resolve_path(file_copy);
+  // struct dir* file_dir = resolve_path(base_path);
   // if (file_dir == NULL || !chdir(base_path))
   //   return -1;
   //printf("file: %s\n", file);
   //open file (we've changed to the file's parent directory)
-  printf("REACHED OPEN======");
+  //printf("REACHED OPEN======");
   struct file* opened = filesys_open(file);
   if (opened == NULL) {
     return -1;
@@ -559,16 +557,17 @@ bool remove(const char* file) {
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
 bool create(const char* file, unsigned initialized_size) {
-  // char last_name[NAME_MAX + 1];
+  char last_name[NAME_MAX + 1];
   // printf("file: %s\n", file);
-  // char* base_path = get_base_path(file, last_name);
-  // struct dir* dir = resolve_path(base_path);
-  // if (!dir)
-  //   return false;
+  char* base_path = get_base_path(file, last_name);
+  //struct dir* dir = resolve_path(base_path);
+  bool is_dir = true;
+  if (!strcmp(base_path, "/") || base_path == NULL)
+    is_dir = false;
 
   // printf("WEFHWIFEHlast_name: %s\n", last_name);
   // printf("base_path: %s\n", base_path);
-  return filesys_create(file, initialized_size);
+  return filesys_create(file, initialized_size, is_dir);
 }
 
 /* Check if process fdt contains the fd. Return fileDescriptor if found, NULL otherwise. */
@@ -589,77 +588,25 @@ struct fileDescriptor* find_fd(int fd_val) {
   return NULL;
 }
 
-// bool mkdir(const char* dir) {
-//   //automatically make . and .. directories
-//   char last_name[NAME_MAX + 1];
-//   char* dup_dir = strdup(dir);
-//   while(get_next_part(&last_name, &dup_dir) == 1);
+//printf("MADE IT HERE");
 
-//   char name_part[NAME_MAX + 1];
-//   char* dup_path = strdup(dir);
-//   struct inode** inode;
-//   struct dir* curr_dir;
-//   if (strncmp(dir, "/", 1) == 0) {
-//     curr_dir = dir_open_root(); // /home/user: what if home is the root dir
-//   } else {
-//     curr_dir = thread_current()->pcb->cwd;
-//   }
-//   while (get_next_part(&name_part, &dup_path)) {
-//     if (strcmp(&name_part, &last_name) == 0)
-//       break;
-//     if (dir_lookup(curr_dir, &name_part, inode)) {
-//       dir_close(curr_dir);
-//       curr_dir = dir_open(*inode);
-//       memset(name_part, 0, sizeof name_part);
-//       //a directory doesn't exist in the middle of the path, FAIL
-//     } else {
-//       return false;
-//     }
-//   }
-//   //at this point last_name should contain the last directory name and curr_dir should be its parent
-//   //allocate and create the new directory
-//   block_sector_t *sectorp;
-//   if (!free_map_allocate(1, sectorp))
-//     return false;
-//   if (!dir_create(*sectorp, 0))
-//     return false;
+//printf("MADE IT HERE");
+//add . and .. to new dir
+//free(sectorp);
+//printf("MADE IT HERE");
 
-//   //create a dir struct
-//   struct dir* new_dir = calloc(1, sizeof *dir);
-//   new_dir->parent = curr_dir;
-//   new_dir->inode = inode_open(*sectorp);
-//   new_dir->pos = 0;
+/*THIS CODE IS FOR ADDING . AND .. TO THE NEW DIRECTORY*/
 
-//   //TODO: figure out where to add fdt entry for this directory
-
-//   //add new dir entry to parent dir
-//   if(!dir_add(curr_dir, &last_name, curr_dir->inode->sector))
-//     return false;
-
-//   //add . and .. to new dir
-//   if (!dir_add(new_dir, ".", *sectorp) || !dir_add(new_dir, "..", *sectorp))
-//     return false;
-
+// if (dir_add(new_dir, ".", new_dir->inode->sector) && dir_add(new_dir, "..", new_dir->inode->sector)) {
+//   //printf("MADE IT HERE");
 //   return true;
 // }
-
-// if (dir[0] == '/' || thread_current()->pcb->cwd == NULL) {
-//   curr_dir = dir_open_root(); // /home/user: what if home is the root dir
-// } else {
-//   curr_dir = thread_current()->pcb->cwd;
-// }
-// char name_part[NAME_MAX + 1];
-// char * srcp = dir;
-// while (get_next_part(name_part, srcp) == 1 && curr_dir) {
-//   struct inode** inode;
-//   if (dir_lookup(curr_dir, &name_part, inode)) {
-//     dir_close(curr_dir);
-//     curr_dir = dir_open(*inode);
-//     //memset(name_part, 0, sizeof name_part);
-//   } else {
-//     curr_dir = NULL;
-//   }
-// }
-
-// if (!curr_dir)
+// if (!dir_add(new_dir, ".", new_dir->inode->sector)) {
+//   printf("MADE IT HERE 1");
 //   return false;
+// }
+// if (!dir_add(new_dir, "..", new_dir->inode->sector)) {
+//   printf("MADE IT HERE 2");
+//   return false;
+// }
+//printf("MADE IT HERE");

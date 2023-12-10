@@ -19,16 +19,28 @@ struct buffer_cache_elem {
   struct list_elem elem;
 };
 
+// /* On-disk inode.
+//    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
+// struct inode_disk {
+//   //block_sector_t start; /* First data sector. */
+//   off_t length;                   /* File size in bytes. */
+//   unsigned magic;                 /* Magic number. */
+//   block_sector_t* direct;         /* Direct data sectors. */
+//   block_sector_t indirect;        /* Indirect data sector. */
+//   block_sector_t doubly_indirect; /* Indirect data sector. */
+//   uint32_t unused[123];           /* Not used. */
+// };
+
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk {
-  //block_sector_t start; /* First data sector. */
-  off_t length;                   /* File size in bytes. */
-  unsigned magic;                 /* Magic number. */
-  block_sector_t* direct;         /* Direct data sectors. */
-  block_sector_t indirect;        /* Indirect data sector. */
-  block_sector_t doubly_indirect; /* Indirect data sector. */
-  uint32_t unused[123];           /* Not used. */
+  // block_sector_t start; /* First data sector. */
+  off_t length;   /* File size in bytes. */
+  unsigned magic; /* Magic number. */
+  block_sector_t direct[12];
+  block_sector_t indirect;
+  block_sector_t double_indirect;
+  uint32_t unused[112]; /* Not used. */
 };
 
 /* In-memory inode. */

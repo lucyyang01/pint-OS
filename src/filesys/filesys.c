@@ -7,11 +7,13 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "filesys/inode.h"
+#include <stdbool.h>
 
 /* Partition that contains the file system. */
 struct block* fs_device;
 
 static void do_format(void);
+bool filesys_create(const char* name, off_t initial_size, bool is_dir);
 
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
@@ -41,9 +43,15 @@ void filesys_done(void) {
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
-bool filesys_create(const char* name, off_t initial_size) {
+bool filesys_create(const char* name, off_t initial_size, bool isdir) {
   block_sector_t inode_sector = 0;
-  struct dir* dir = dir_open_root();
+  struct dir* dir;
+  if (isdir) {
+    char last_name[NAME_MAX + 1];
+    char* base_path = get_base_path(name, last_name);
+    dir = resolve_path(base_path);
+  } else
+    dir = dir_open_root();
   bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
                   inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
   if (!success && inode_sector != 0)
