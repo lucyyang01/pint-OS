@@ -13,17 +13,8 @@
 #define INODE_MAGIC 0x494e4f44
 #define INDIRECT_PTRS 128
 
-// /* On-disk inode.
-//    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
-// struct inode_disk {
-//   // block_sector_t start; /* First data sector. */
-//   off_t length;   /* File size in bytes. */
-//   unsigned magic; /* Magic number. */
-//   block_sector_t direct[12];
-//   block_sector_t indirect;
-//   block_sector_t double_indirect;
-//   uint32_t unused[112]; /* Not used. */
-// };
+/* On-disk inode.
+   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -36,13 +27,13 @@ static inline size_t bytes_to_sectors(off_t size) { return DIV_ROUND_UP(size, BL
 static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
   ASSERT(inode != NULL);
 
-  if (pos < inode->data->length) {
+  if (pos < inode->data.length) {
     // Calculate the block index based on the position
     int block_index = pos / BLOCK_SECTOR_SIZE;
 
     if (block_index < 12) {
       // Direct blocks
-      return inode->data->direct[block_index];
+      return inode->data.direct[block_index];
     } else {
       // Indirect and doubly indirect blocks
       block_index -= 12; // Adjust for the direct blocks
@@ -51,7 +42,7 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
         // Indirect block
         block_sector_t* indirect_block = malloc(BLOCK_SECTOR_SIZE);
         if (indirect_block != NULL) {
-          cache_read(inode->data->indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
+          cache_read(inode->data.indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
           block_sector_t result = indirect_block[block_index];
           free(indirect_block);
           return result;
@@ -65,7 +56,7 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
 
         block_sector_t* doubly_indirect_block = malloc(BLOCK_SECTOR_SIZE);
         if (doubly_indirect_block != NULL) {
-          cache_read(inode->data->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
+          cache_read(inode->data.double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
 
           block_sector_t indirect_block_sector = doubly_indirect_block[indirect_index];
           free(doubly_indirect_block);
@@ -90,7 +81,6 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
 /* List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
 static struct list open_inodes;
-struct lock inode_list_lock;
 
 static struct list buffer_cache;
 static struct lock global_cache_lock;
@@ -271,27 +261,6 @@ void cache_flush() {
   lock_release(&global_cache_lock);
 }
 
-bool create_indirect(struct inode_disk* disk_inode, size_t sectors) {
-  if (sectors > 12) {
-    bool success = false;
-    //PANIC("total sectors %d", sectors);
-    if (!free_map_allocate(1, disk_inode->indirect))
-      return false;
-    size_t indirect = (sectors - 12) <= 128 ? (sectors - 12) : 128;
-    block_sector_t* buffer = calloc(0, sizeof(block_sector_t) * 128);
-    if (free_map_allocate(indirect, buffer)) {
-      success = true;
-      static char zeros[BLOCK_SECTOR_SIZE];
-      for (size_t i = 0; i < indirect; i++)
-        //block_write(fs_device, disk_inode->start + i, zeros);
-        cache_write(buffer + i, zeros, BLOCK_SECTOR_SIZE, 0);
-    }
-    cache_write(disk_inode->indirect, buffer, BLOCK_SECTOR_SIZE, 0);
-    free(buffer);
-  }
-  return true;
-}
-
 /* Initializes an inode with LENGTH bytes of data and
    writes the new inode to sector SECTOR on the file system
    device.
@@ -311,109 +280,115 @@ bool inode_create(block_sector_t sector, off_t length) {
 
   disk_inode = calloc(1, sizeof *disk_inode);
   if (disk_inode != NULL) {
+    disk_inode->length = length;
+    disk_inode->magic = INODE_MAGIC;
+    success = inode_resize(disk_inode, length);
+    if (!success) {
+      free(disk_inode);
+      return false;
+    }
     size_t sectors = bytes_to_sectors(length);
-    size_t direct = sectors <= 12 ? sectors : 12;
     disk_inode->length = length;
     disk_inode->magic = INODE_MAGIC;
     // disk_inode->indirect = calloc(1,BLOCK_SECTOR_SIZE);
     // disk_inode->double_indirect = calloc(1,BLOCK_SECTOR_SIZE);
 
-    for (size_t i = 0; i < sectors; ++i) {
-      block_sector_t new_sector;
+    // for (size_t i = 0; i < sectors; ++i) {
+    //   block_sector_t new_sector;
 
-      // Use the second argument to store the allocated block sector
-      if (i < 12) {
-        if (free_map_allocate(1, &disk_inode->direct[i])) {
-          cache_write(disk_inode->direct[i], zeros, BLOCK_SECTOR_SIZE, 0);
-          success = true;
-        } else {
-          free(disk_inode);
-          return false;
-        }
+    //   // Use the second argument to store the allocated block sector
+    //   if (i < 12) {
+    //     if (free_map_allocate(1, &disk_inode->direct[i])) {
+    //       cache_write(disk_inode->direct[i], zeros, BLOCK_SECTOR_SIZE, 0);
+    //       success = true;
+    //     } else {
+    //       free(disk_inode);
+    //       return false;
+    //     }
 
-        // Direct block
-        // disk_inode->direct[i] = new_sector;
-      } else if (i < 12 + INDIRECT_PTRS) {
-        if (free_map_allocate(1, &new_sector)) {
-          // Indirect block
-          if (disk_inode->indirect == 0) {
-            // Allocate an indirect block if not allocated yet
-            if (!free_map_allocate(1, &disk_inode->indirect)) {
-              // Handle allocation failure
-              free(disk_inode);
-              // lock_release(&free_lock);
-              return false;
-            }
-            cache_write(disk_inode->indirect, zeros, BLOCK_SECTOR_SIZE, 0);
-          }
+    //     // Direct block
+    //     // disk_inode->direct[i] = new_sector;
+    //   } else if (i < 12 + INDIRECT_PTRS) {
+    //     if (free_map_allocate(1, &new_sector)) {
+    //       // Indirect block
+    //       if (disk_inode->indirect == 0) {
+    //         // Allocate an indirect block if not allocated yet
+    //         if (!free_map_allocate(1, &disk_inode->indirect)) {
+    //           // Handle allocation failure
+    //           free(disk_inode);
+    //           // lock_release(&free_lock);
+    //           return false;
+    //         }
+    //         cache_write(disk_inode->indirect, zeros, BLOCK_SECTOR_SIZE, 0);
+    //       }
 
-          // Read the indirect block from the cache
-          // block_sector_t *indirect_block = malloc(INDIRECT_PTRS * sizeof(block_sector_t));
-          // cache_read(*disk_inode->indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
+    //       // Read the indirect block from the cache
+    //       // block_sector_t *indirect_block = malloc(INDIRECT_PTRS * sizeof(block_sector_t));
+    //       // cache_read(*disk_inode->indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
 
-          // // Update the indirect block
-          // indirect_block[i - 12] = new_sector;
+    //       // // Update the indirect block
+    //       // indirect_block[i - 12] = new_sector;
 
-          // Write the indirect block back to the cache
-          cache_write(disk_inode->indirect, &new_sector, 4, (i - 12) * 4);
-          success = true;
-        } else {
-          free(disk_inode);
-          return false;
-        }
-      } else {
-        if (free_map_allocate(1, &new_sector)) {
-          // Double indirect block
-          if (disk_inode->double_indirect == 0) {
-            // Allocate a double indirect block if not allocated yet
-            if (!free_map_allocate(1, &disk_inode->double_indirect)) {
-              // Handle allocation failure
-              free(disk_inode);
-              // lock_release(&free_lock);
-              return false;
-            }
-            // Initialize the doubly indirect block with zeros
-            cache_write(disk_inode->double_indirect, zeros, BLOCK_SECTOR_SIZE, 0);
-          }
+    //       // Write the indirect block back to the cache
+    //       cache_write(disk_inode->indirect, &new_sector, 4, (i - 12) * 4);
+    //       success = true;
+    //     } else {
+    //       free(disk_inode);
+    //       return false;
+    //     }
+    //   } else {
+    //     if (free_map_allocate(1, &new_sector)) {
+    //       // Double indirect block
+    //       if (disk_inode->double_indirect == 0) {
+    //         // Allocate a double indirect block if not allocated yet
+    //         if (!free_map_allocate(1, &disk_inode->double_indirect)) {
+    //           // Handle allocation failure
+    //           free(disk_inode);
+    //           // lock_release(&free_lock);
+    //           return false;
+    //         }
+    //         // Initialize the doubly indirect block with zeros
+    //         cache_write(disk_inode->double_indirect, zeros, BLOCK_SECTOR_SIZE, 0);
+    //       }
 
-          int indirect_index = (i - 12 - INDIRECT_PTRS) / INDIRECT_PTRS;
-          int within_indirect_index = (i - 12 - INDIRECT_PTRS) % INDIRECT_PTRS;
+    //       int indirect_index = (i - 12 - INDIRECT_PTRS) / INDIRECT_PTRS;
+    //       int within_indirect_index = (i - 12 - INDIRECT_PTRS) % INDIRECT_PTRS;
 
-          // Read the doubly indirect block from the cache
-          block_sector_t doubly_indirect_block[INDIRECT_PTRS];
-          cache_read(disk_inode->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
+    //       // Read the doubly indirect block from the cache
+    //       block_sector_t doubly_indirect_block[INDIRECT_PTRS];
+    //       cache_read(disk_inode->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
 
-          // Indirect block within doubly indirect block
-          if (doubly_indirect_block[indirect_index] == 0) {
-            // Allocate an indirect block if not allocated yet
-            if (!free_map_allocate(1, &doubly_indirect_block[indirect_index])) {
-              // Handle allocation failure
-              free(disk_inode);
-              // lock_release(&free_lock);
-              return false;
-            }
-            // Initialize the indirect block with zeros
-            cache_write(doubly_indirect_block[indirect_index], zeros, BLOCK_SECTOR_SIZE, 0);
-            // Write the updated doubly indirect block back to the cache
-            cache_write(disk_inode->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
-          }
+    //       // Indirect block within doubly indirect block
+    //       if (doubly_indirect_block[indirect_index] == 0) {
+    //         // Allocate an indirect block if not allocated yet
+    //         if (!free_map_allocate(1, &doubly_indirect_block[indirect_index])) {
+    //           // Handle allocation failure
+    //           free(disk_inode);
+    //           // lock_release(&free_lock);
+    //           return false;
+    //         }
+    //         // Initialize the indirect block with zeros
+    //         cache_write(doubly_indirect_block[indirect_index], zeros, BLOCK_SECTOR_SIZE, 0);
+    //         // Write the updated doubly indirect block back to the cache
+    //         cache_write(disk_inode->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
+    //       }
 
-          // Read the indirect block from the cache
-          block_sector_t indirect_block[INDIRECT_PTRS];
-          cache_read(doubly_indirect_block[indirect_index], indirect_block, BLOCK_SECTOR_SIZE, 0);
+    //       // Read the indirect block from the cache
+    //       block_sector_t indirect_block[INDIRECT_PTRS];
+    //       cache_read(doubly_indirect_block[indirect_index], indirect_block, BLOCK_SECTOR_SIZE, 0);
 
-          // Update the indirect block
-          indirect_block[within_indirect_index] = new_sector;
+    //       // Update the indirect block
+    //       indirect_block[within_indirect_index] = new_sector;
 
-          // Write the indirect block back to the cache
-          cache_write(doubly_indirect_block[indirect_index], indirect_block, BLOCK_SECTOR_SIZE, 0);
-          success = true;
-        } else {
-          free(disk_inode);
-          return false;
-        }
-      }
-    }
+    //       // Write the indirect block back to the cache
+    //       cache_write(doubly_indirect_block[indirect_index], indirect_block, BLOCK_SECTOR_SIZE, 0);
+    //       success = true;
+    //     } else {
+    //       free(disk_inode);
+    //       return false;
+    //     }
+    //   }
+    // }
 
     // Write the inode to the cache
     cache_write(sector, disk_inode, BLOCK_SECTOR_SIZE, 0);
@@ -425,155 +400,170 @@ bool inode_create(block_sector_t sector, off_t length) {
   return true;
 }
 
-// bool inode_resize(block_sector_t sector, int sectors) {
-//     for (size_t i = 0; i < sectors; ++i) {
-//       block_sector_t new_sector;
+bool inode_resize(struct inode_disk* disk, off_t size) {
+  bool success = false;
+  static char zeros[BLOCK_SECTOR_SIZE];
+  block_sector_t new_sector; /*Handle direct pointers.*/
+  for (int i = 0; i < 12; i++) {
+    if (size <= BLOCK_SECTOR_SIZE * i && disk->direct[i] != 0) { /*Shrink.*/
+      // block_free(disk->direct[i]);
+      // disk->direct[i] = 0;
+    } else if (size > BLOCK_SECTOR_SIZE * i && disk->direct[i] == 0) { /*Grow.*/
+      if (free_map_allocate(1, &disk->direct[i])) {
+        cache_write(disk->direct[i], zeros, BLOCK_SECTOR_SIZE, 0);
+        success = true;
+      } else {
+        // free(disk);
+        return false;
+      }
+    }
+  }
+  if (disk->indirect == 0 && size <= 12 * BLOCK_SECTOR_SIZE) {
+    disk->length = size;
+    return true;
+  }
 
-//       // Use the second argument to store the allocated block sector
-//       if (i < 12) {
-//         if (free_map_allocate(1, &disk_inode->direct[i])) {
-//           cache_write(disk_inode->direct[i], zeros, BLOCK_SECTOR_SIZE, 0);
-//           success = true;
-//         }
-//         else {
-//           free(disk_inode);
-//           return false;
-//         }
+  block_sector_t buffer[128];
+  memset(buffer, 0, 512);
+  if (disk->indirect == 0) { /*Allocate indirectblock.*/
+    // disk->indirect=block_allocate();
+    if (!free_map_allocate(1, &disk->indirect)) {
+      // Handle allocation failure
+      // free(disk);
+      // lock_release(&free_lock);
+      return false;
+    }
+    cache_write(disk->indirect, zeros, BLOCK_SECTOR_SIZE, 0);
+  } else { /* Read in indirect block.*/
+    //block_read(id->indirect,buffer);
+    cache_read(disk->indirect, buffer, BLOCK_SECTOR_SIZE, 0);
+  }
 
-//         // Direct block
-//         // disk_inode->direct[i] = new_sector;
-//       } else if (i < 12 + INDIRECT_PTRS) {
-//         if (free_map_allocate(1, &new_sector)) {
-//           // Indirect block
-//           if (disk_inode->indirect == 0) {
-//             // Allocate an indirect block if not allocated yet
-//             if (!free_map_allocate(1, &disk_inode->indirect)) {
-//               // Handle allocation failure
-//               free(disk_inode);
-//               // lock_release(&free_lock);
-//               return false;
-//             }
-//             cache_write(disk_inode->indirect, zeros, BLOCK_SECTOR_SIZE, 0);
-//           }
+  for (int i = 0; i < 128; i++) {
+    if (free_map_allocate(1, &new_sector)) {
 
-//           // Read the indirect block from the cache
-//           // block_sector_t *indirect_block = malloc(INDIRECT_PTRS * sizeof(block_sector_t));
-//           // cache_read(*disk_inode->indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
+    } else {
+      return false;
+    }
+    if (size <= (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] != 0) { /*Shrink.*/
+      // block_free(buffer[i]);
+      buffer[i] = 0;
+    } else if (size > (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] == 0) { /*Grow.*/
+      // buffer[i] = block_allocate();
+      cache_write(disk->indirect, &new_sector, 4, i * 4);
+    }
+  }
+  if (size <= 12 * BLOCK_SECTOR_SIZE) { /*We shranktheinodesuchthatindirectpointersarenotrequired.*/
+    // block_free(disk->indirect);
+    disk->indirect = 0;
+  } else { /*Writetheupdatesto theindirectblockbacktodisk.*/
+    //block_write(id->indirect,buffer);
+  }
 
-//           // // Update the indirect block
-//           // indirect_block[i - 12] = new_sector;
+  /* Check if we need double indirect pointers */
+  if (disk->double_indirect == 0 &&
+      size <= (12 * BLOCK_SECTOR_SIZE) + (BLOCK_SECTOR_SIZE * INDIRECT_PTRS)) {
+    disk->length = size;
+    return true;
+  }
+  /* If we do, allocate or read in from cache. */
+  /* If not, return. */
 
-//           // Write the indirect block back to the cache
-//           cache_write(disk_inode->indirect, &new_sector, 4, (i - 12) * 4);
-//           success = true;
-//         } else {
-//           free(disk_inode);
-//           return false;
-//         }
-//       }
-//       else {
-//         if (free_map_allocate(1, &new_sector)) {
-//             // Double indirect block
-//           if (disk_inode->double_indirect == 0) {
-//                 // Allocate a double indirect block if not allocated yet
-//                 if (!free_map_allocate(1, &disk_inode->double_indirect)) {
-//                     // Handle allocation failure
-//                     free(disk_inode);
-//                     // lock_release(&free_lock);
-//                     return false;
-//                 }
-//                 // Initialize the doubly indirect block with zeros
-//                 cache_write(disk_inode->double_indirect, zeros, BLOCK_SECTOR_SIZE, 0);
-//           }
+  // memset(doubles, 0, 512);
+  if (disk->double_indirect == 0) { /*Allocate indirectblock.*/
+    // disk->indirect=block_allocate();
+    if (!free_map_allocate(1, &disk->double_indirect)) {
+      // Handle allocation failure
+      // free(disk);
+      // lock_release(&free_lock);
+      return false;
+    }
+    cache_write(disk->double_indirect, zeros, BLOCK_SECTOR_SIZE, 0);
+  }
+  block_sector_t doubles[INDIRECT_PTRS];
+  cache_read(disk->double_indirect, doubles, BLOCK_SECTOR_SIZE, 0);
+  for (int x = 0; x < INDIRECT_PTRS; x++) {
+    /* If size <= current index */
+    for (int y = 0; y < INDIRECT_PTRS; y++) {
+      if (size < (12 + INDIRECT_PTRS + y + (x * INDIRECT_PTRS)) * BLOCK_SECTOR_SIZE) { /*Shrink.*/
+        // block_free(buffer[i]);
+        // doubles[i] = 0;
+        disk->length = size;
+        return true;
+      }
+      if (!free_map_allocate(1, &new_sector)) {
+        return false;
+      }
+      if (doubles[x] == 0) {
+        if (!free_map_allocate(1, &doubles[x])) {
+          return false;
+        }
+        // Initialize the indirect block with zeros
+        cache_write(doubles[x], zeros, BLOCK_SECTOR_SIZE, 0);
+        // Write the updated doubly indirect block back to the cache
+        cache_write(disk->double_indirect, doubles, BLOCK_SECTOR_SIZE, 0);
+      }
+      // if (size > (12 + 128 + y + (x*128))*BLOCK_SECTOR_SIZE && buffer[y]==0)
+      // { /*Grow.*/
+      //   // buffer[i] = block_allocate();
+      //   cache_write(disk->indirect, &new_sector, 4, (i - 12) * 4);
+      // }
+      block_sector_t indirect_block[INDIRECT_PTRS];
+      cache_read(doubles[x], indirect_block, BLOCK_SECTOR_SIZE, 0);
+      indirect_block[y] = new_sector;
+      cache_write(doubles[x], indirect_block, BLOCK_SECTOR_SIZE, 0);
+    }
+  }
 
-//             int indirect_index = (i - 12 - INDIRECT_PTRS) / INDIRECT_PTRS;
-//             int within_indirect_index = (i - 12 - INDIRECT_PTRS) % INDIRECT_PTRS;
+  disk->length = size;
+  return true;
+}
 
-//             // Read the doubly indirect block from the cache
-//             block_sector_t doubly_indirect_block[INDIRECT_PTRS];
-//             cache_read(disk_inode->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
-
-//             // Indirect block within doubly indirect block
-//             if (doubly_indirect_block[indirect_index] == 0) {
-//                 // Allocate an indirect block if not allocated yet
-//                 if (!free_map_allocate(1, &doubly_indirect_block[indirect_index])) {
-//                     // Handle allocation failure
-//                     free(disk_inode);
-//                     // lock_release(&free_lock);
-//                     return false;
-//                 }
-//                 // Initialize the indirect block with zeros
-//                 cache_write(doubly_indirect_block[indirect_index], zeros, BLOCK_SECTOR_SIZE, 0);
-//                 // Write the updated doubly indirect block back to the cache
-//                 cache_write(disk_inode->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
-//             }
-
-//             // Read the indirect block from the cache
-//             block_sector_t indirect_block[INDIRECT_PTRS];
-//             cache_read(doubly_indirect_block[indirect_index], indirect_block, BLOCK_SECTOR_SIZE, 0);
-
-//             // Update the indirect block
-//             indirect_block[within_indirect_index] = new_sector;
-
-//             // Write the indirect block back to the cache
-//             cache_write(doubly_indirect_block[indirect_index], indirect_block, BLOCK_SECTOR_SIZE, 0);
-//             success = true;
-//         }
-//         else {
-//           free(disk_inode);
-//           return false;
-//         }
-//       }
-
-//     }
-// }
 /* Reads an inode from SECTOR
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */
 struct inode* inode_open(block_sector_t sector) {
   struct list_elem* e;
   struct inode* inode;
+  struct lock open_inodes_lock;
 
-  // lock the inode list
-  //lock_acquire(&inode_list_lock);
+  lock_init(&open_inodes_lock);
+  //lock_acquire(&open_inodes_lock);
   /* Check whether this inode is already open. */
   for (e = list_begin(&open_inodes); e != list_end(&open_inodes); e = list_next(e)) {
     inode = list_entry(e, struct inode, elem);
-    // lock_acquire(&inode->lock);
     if (inode->sector == sector) {
       inode_reopen(inode);
-      // lock_release(&inode->lock);
+      //lock_release(&open_inodes_lock);
       return inode;
     }
-    // lock_release(&inode->lock);
   }
 
   /* Allocate memory. */
   inode = malloc(sizeof *inode);
   if (inode == NULL)
+    //lock_release(&open_inodes_lock);
     return NULL;
 
   /* Initialize. */
   list_push_front(&open_inodes, &inode->elem);
-  // release the lock
-  // lock_release(&inode_list_lock);
   inode->sector = sector;
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
-  inode->data = malloc(BLOCK_SECTOR_SIZE);
+  lock_init(&inode->inode_lock);
   //block_read(fs_device, inode->sector, &inode->data);
-  cache_read(inode->sector, inode->data, BLOCK_SECTOR_SIZE, 0);
+  cache_read(inode->sector, &inode->data, BLOCK_SECTOR_SIZE, 0);
+  //lock_release(&open_inodes_lock);
   return inode;
 }
 
 /* Reopens and returns INODE. */
 struct inode* inode_reopen(struct inode* inode) {
-  if (inode != NULL) {
-    // lock_acquire(&inode->lock);
+  lock_acquire(&inode->inode_lock);
+  if (inode != NULL)
     inode->open_cnt++;
-    // lock_release(&inode->lock);
-  }
+  lock_release(&inode->inode_lock);
   return inode;
 }
 
@@ -585,30 +575,28 @@ block_sector_t inode_get_inumber(const struct inode* inode) { return inode->sect
    If INODE was also a removed inode, frees its blocks. */
 void inode_close(struct inode* inode) {
   /* Ignore null pointer. */
+  //lock_acquire(&inode->inode_lock);
   if (inode == NULL)
     return;
-  // aqcuire inode lock
-  // lock_acquire(&inode->lock);
+
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0) {
     /* Remove from inode list and release lock. */
-    // lock_acquire(&inode_list_lock);
     list_remove(&inode->elem);
-    // lock_release(&inode_list_lock);
 
     /* Deallocate blocks if removed. */
     if (inode->removed) {
       // Deallocate direct blocks
       for (int i = 0; i < 12; ++i) {
-        if (inode->data->direct[i] != -1) {
-          free_map_release(inode->data->direct[i], 1);
+        if (inode->data.direct[i] != -1) {
+          free_map_release(inode->data.direct[i], 1);
         }
       }
 
       // Deallocate indirect blocks
-      if (inode->data->indirect != -1) {
+      if (inode->data.indirect != -1) {
         block_sector_t indirect_block[INDIRECT_PTRS];
-        cache_read(inode->data->indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
+        cache_read(inode->data.indirect, indirect_block, BLOCK_SECTOR_SIZE, 0);
 
         for (int i = 0; i < INDIRECT_PTRS; ++i) {
           if (indirect_block[i] != -1) {
@@ -616,13 +604,13 @@ void inode_close(struct inode* inode) {
           }
         }
 
-        free_map_release(inode->data->indirect, 1);
+        free_map_release(inode->data.indirect, 1);
       }
 
       // Deallocate doubly indirect blocks
-      if (inode->data->double_indirect != -1) {
+      if (inode->data.double_indirect != -1) {
         block_sector_t doubly_indirect_block[INDIRECT_PTRS];
-        cache_read(inode->data->double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
+        cache_read(inode->data.double_indirect, doubly_indirect_block, BLOCK_SECTOR_SIZE, 0);
 
         for (int i = 0; i < INDIRECT_PTRS; ++i) {
           if (doubly_indirect_block[i] != -1) {
@@ -639,13 +627,12 @@ void inode_close(struct inode* inode) {
           }
         }
 
-        free_map_release(inode->data->double_indirect, 1);
+        free_map_release(inode->data.double_indirect, 1);
       }
 
       free_map_release(inode->sector, 1);
     }
-    // release ionde lock
-    // lock_release(&inode->lock);
+    //lock_release(&inode->inode_lock);
     free(inode);
   }
 }
@@ -653,12 +640,10 @@ void inode_close(struct inode* inode) {
 /* Marks INODE to be deleted when it is closed by the last caller who
    has it open. */
 void inode_remove(struct inode* inode) {
+  lock_acquire(&inode->inode_lock);
   ASSERT(inode != NULL);
-  // aqcuire inode lock
-  // lock_acquire(&inode->lock);
   inode->removed = true;
-  // release lock
-  // lock_release(&inode->lock);
+  lock_release(&inode->inode_lock);
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
@@ -670,8 +655,6 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
 
   while (size > 0) {
     /* Disk sector to read, starting byte offset within sector. */
-    // acquire inode lock
-    // lock_acquire(&inode->lock);
     block_sector_t sector_idx = byte_to_sector(inode, offset);
     // if ((int)sector_idx <0) {
     //   return 0;
@@ -680,8 +663,6 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
 
     /* Bytes left in inode, bytes left in sector, lesser of the two. */
     off_t inode_left = inode_length(inode) - offset;
-    // release inode lock
-    // lock_release(&inode->lock);
     int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
     int min_left = inode_left < sector_left ? inode_left : sector_left;
 
@@ -716,14 +697,14 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   const uint8_t* buffer = buffer_;
   off_t bytes_written = 0;
 
-  // acquire inode lock
-  // lock_acquire(&inode->lock);
-  if (inode->deny_write_cnt) {
-    // lock_release(&inode->lock);
+  if (inode->deny_write_cnt)
     return 0;
+  if (inode_length(inode) < size + offset) {
+    if (!inode_resize(&inode->data, size + offset)) {
+      return 0;
+    }
+    cache_write(inode->sector, &inode->data, BLOCK_SECTOR_SIZE, 0);
   }
-  //printf("MADE IT HERE");
-  // inode_resize(inode, offset + size);
   while (size > 0) {
     /* Sector to write, starting byte offset within sector. */
     block_sector_t sector_idx = byte_to_sector(inode, offset);
@@ -734,8 +715,6 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
 
     /* Bytes left in inode, bytes left in sector, lesser of the two. */
     off_t inode_left = inode_length(inode) - offset;
-    // release inode lock
-    // lock_release(&inode->lock);
     int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
     int min_left = inode_left < sector_left ? inode_left : sector_left;
 
@@ -764,29 +743,26 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
 /* Disables writes to INODE.
    May be called at most once per inode opener. */
 void inode_deny_write(struct inode* inode) {
-  // acquire inode lock
-  // lock_acquire(&inode->lock);
+  lock_acquire(&inode->inode_lock);
   inode->deny_write_cnt++;
   ASSERT(inode->deny_write_cnt <= inode->open_cnt);
-  // release inode lock
-  // lock_release(&inode->lock);
+  lock_release(&inode->inode_lock);
 }
 
 /* Re-enables writes to INODE.
    Must be called once by each inode opener who has called
    inode_deny_write() on the inode, before closing the inode. */
 void inode_allow_write(struct inode* inode) {
-  // acquire inode lock
-  // lock_acquire(&inode->lock);
+  lock_acquire(&inode->inode_lock);
   ASSERT(inode->deny_write_cnt > 0);
   ASSERT(inode->deny_write_cnt <= inode->open_cnt);
+
   inode->deny_write_cnt--;
-  // release inode lock
-  // lock_release(&inode->lock);
+  lock_release(&inode->inode_lock);
 }
 
 /* Returns the length, in bytes, of INODE's data. */
-off_t inode_length(const struct inode* inode) { return inode->data->length; }
+off_t inode_length(const struct inode* inode) { return inode->data.length; }
 
 float get_buffer_accesses() { return cache_accesses; }
 

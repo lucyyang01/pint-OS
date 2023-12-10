@@ -13,7 +13,7 @@
 struct block* fs_device;
 
 static void do_format(void);
-bool filesys_create(const char* name, off_t initial_size, bool is_dir);
+//bool filesys_create(const char* name, off_t initial_size, bool is_dir);
 
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */

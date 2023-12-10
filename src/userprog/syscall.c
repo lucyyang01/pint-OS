@@ -217,20 +217,20 @@ bool chdir(const char* dir) {
   if (new_cwd == NULL)
     return false;
   thread_current()->pcb->cwd = new_cwd;
-  printf("CHDIR SUCCEEDED=======");
+  //printf("CHDIR SUCCEEDED=======");
   return true;
 }
 
 bool mkdir(const char* dir) {
   // //automatically make . and .. directories
-  printf("MADE IT HERE=========");
+  //printf("MADE IT HERE=========");
   char last_name[NAME_MAX + 1];
   char copy_path[150];
   strlcpy(copy_path, dir, strlen(dir) + 1);
-  printf("copy_path: %s\n", copy_path);
+  //printf("copy_path: %s\n", copy_path);
   char* base_path = get_base_path(dir, &last_name);
-  printf("last_name: %s\n", last_name);
-  printf("base path: %s\n", base_path);
+  //printf("last_name: %s\n", last_name);
+  //printf("base path: %s\n", base_path);
   // struct dir* curr_dir;
 
   // a/b/c    base path: a/b/ last_name : c
@@ -322,7 +322,7 @@ char* get_base_path(char* path, char last_name[NAME_MAX + 1]) {
   //printf("cpy path after truncate: %s\n", copy_path);
   char* dst = (char*)malloc(strlen(copy_path) + 1);
   strlcpy(dst, copy_path, strlen(copy_path) + 1);
-  printf("dst: %s\n", dst);
+  //printf("dst: %s\n", dst);
   return dst;
 }
 
@@ -557,17 +557,17 @@ bool remove(const char* file) {
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
 bool create(const char* file, unsigned initialized_size) {
-  char last_name[NAME_MAX + 1];
-  // printf("file: %s\n", file);
-  char* base_path = get_base_path(file, last_name);
-  //struct dir* dir = resolve_path(base_path);
-  bool is_dir = true;
-  if (!strcmp(base_path, "/") || base_path == NULL)
-    is_dir = false;
+  // char last_name[NAME_MAX + 1];
+  // // printf("file: %s\n", file);
+  // char* base_path = get_base_path(file, last_name);
+  // //struct dir* dir = resolve_path(base_path);
+  // bool is_dir = true;
+  // if (!strcmp(base_path, "/") || base_path == NULL)
+  //   is_dir = false;
 
   // printf("WEFHWIFEHlast_name: %s\n", last_name);
   // printf("base_path: %s\n", base_path);
-  return filesys_create(file, initialized_size, is_dir);
+  return filesys_create(file, initialized_size, false);
 }
 
 /* Check if process fdt contains the fd. Return fileDescriptor if found, NULL otherwise. */
