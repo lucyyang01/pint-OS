@@ -51,10 +51,20 @@ bool filesys_create(const char* name, off_t initial_size, bool isdir) {
     char last_name[NAME_MAX + 1];
     char* base_path = get_base_path(name, last_name);
     dir = resolve_path(base_path);
+    if (dir->inode->removed)
+      return false;
     inode_sector = dir->inode->sector;
     name = last_name;
-  } else
-    dir = dir_open_root();
+  } else {
+    if (!thread_current()->pcb->cwd)
+      dir = dir_open_root();
+    else {
+      dir = thread_current()->pcb->cwd;
+      inode_sector = dir->inode->sector;
+    }
+    if (dir == NULL || dir_get_inode(dir)->removed)
+      return false;
+  }
   bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
                   inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
   if (!success && inode_sector != 0)
