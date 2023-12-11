@@ -277,6 +277,13 @@ bool mkdir(const char* dir) {
   lock_release(&fdt->lock);
   //add new dir entry to parent dir
   // if (parent_dir == NULL)
+  //mkdir 3 -> /3
+  //create 3 -> 3
+  // char name[] = "/";
+  // strlcat(name, last_name, sizeof(last_name) + 1);
+
+  //0/2/0 mkdir create 3:
+
   if (!dir_add(parent_dir, last_name, new_dir->inode->sector))
     return false;
 
@@ -477,7 +484,7 @@ int filesize(int fd) {
 
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
-int open(const char* file) {
+int open(const char* file) { //cwd : a, file: "b" a/b
   if (strlen(file) == 0)
     return -1;
   struct file* opened = filesys_open(file);
@@ -487,14 +494,42 @@ int open(const char* file) {
     struct dir* dir;
     ///////c base c: last : c
     //TODO: special behavior for root if fdt iteration doesn't work
-    if (base_path == NULL) { //the path is just the name of the file, so search in cwd
-      if (!thread_current()->pcb->cwd)
+    //struct dir* test_dir = resolve_path()
+
+    //0/2/0/
+    struct dir* base_dir = NULL;
+    if (base_path != NULL)
+      base_dir = resolve_path(base_path); //can't find directory b inside a
+    if (base_path == NULL || base_dir) {  //base dir exists
+      //0/2/0 last_name: c
+      if (base_dir != NULL)
+        dir = base_dir;
+      else if (!thread_current()->pcb->cwd)
         dir = dir_open_root();
       else
-        dir = dir_reopen(thread_current()->pcb->cwd);
+        dir = thread_current()->pcb->cwd;
+      //look for the file in dir
+      struct inode* inode;
+      //0/2/0/3 //3
+      if (dir_lookup(dir, last_name, &inode) && !inode->data.is_dir) {
+        //file_open(inode);
+        struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+        lock_acquire(&(fdt->lock));
+        struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+        int new_fd = fdt->fdt_count;
+        new_entry->fd = new_fd;
+        new_entry->file = opened;
+        new_entry->is_dir = false;
+        new_entry->dir = NULL;
+        list_push_back(&fdt->lst, &new_entry->elem);
+        fdt->fdt_count++;
+        lock_release(&fdt->lock);
+        return new_fd;
+      }
     }
-    dir = resolve_path(file); //a/b
+    dir = resolve_path(file);
     if (dir == NULL)
+      //look for the file inside
       return -1;
     //printf("MADE IT HERE======");
     struct inode* inode = dir_get_inode(dir);
@@ -628,17 +663,18 @@ bool remove(const char* file) {
 /* Creates a new file called file initially initial_size bytes in size. 
 ** Return True if successful, otherwise False */
 bool create(const char* file, unsigned initialized_size) {
-  // char last_name[NAME_MAX + 1];
-  // // printf("file: %s\n", file);
-  // char* base_path = get_base_path(file, last_name);
-  // //struct dir* dir = resolve_path(base_path);
-  // bool is_dir = true;
-  // if (!strcmp(base_path, "/") || base_path == NULL)
-  //   is_dir = false;
-
+  if (strlen(file) > NAME_MAX + 1)
+    return false;
+  char last_name[NAME_MAX + 1];
+  // printf("file: %s\n", file);
+  char* base_path = get_base_path(file, last_name);
+  //struct dir* dir = resolve_path(base_path);
+  bool is_dir = true;
+  if (base_path == NULL || !strcmp(base_path, "/"))
+    is_dir = false;
   // printf("WEFHWIFEHlast_name: %s\n", last_name);
   // printf("base_path: %s\n", base_path);
-  return filesys_create(file, initialized_size, false);
+  return filesys_create(file, initialized_size, is_dir);
 }
 
 /* Check if process fdt contains the fd. Return fileDescriptor if found, NULL otherwise. */
