@@ -97,6 +97,8 @@ void userprog_init(void) {
 
   t->pcb->exit_code = -1;
 
+  //t->pcb->removed_cwd = false;
+
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
 }
@@ -240,6 +242,7 @@ static void start_process(void* i) {
     t->pcb->pid = t->tid;
 
     t->pcb->exit_code = -1;
+
     /* File Descriptor Table */
     struct fileDescriptor_list* fdt = malloc(sizeof(struct fileDescriptor_list));
     init_file_descriptor_list(fdt);

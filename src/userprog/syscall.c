@@ -233,7 +233,7 @@ bool mkdir(const char* dir) {
   // char copy_path[150];
   // strlcpy(copy_path, dir, strlen(dir) + 1);
   //printf("copy_path: %s\n", copy_path);
-  char* base_path = get_base_path(dir, &last_name);
+  char* base_path = get_base_path(dir, last_name);
   //printf("last_name: %s\n", last_name);
   //printf("base path: %s\n", base_path);
   // struct dir* curr_dir;
@@ -502,7 +502,7 @@ int filesize(int fd) {
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
 int open(const char* file) { //cwd : a, file: "b" a/b
-  if (strlen(file) == 0)
+  if (strlen(file) == 0)     //|| thread_current()->pcb->removed_cwd
     return -1;
   struct file* opened = filesys_open(file);
   if (opened == NULL || opened->inode->data.is_dir) {
@@ -610,55 +610,112 @@ int open(const char* file) { //cwd : a, file: "b" a/b
 //   return true;
 // }
 
+// bool remove(const char* file) {
+//   bool success = false;
+//   bool is_empty = true;
+//   //either the file doesn't exist or it's a directory
+//   //path resolve here before calling filesys remove?
+//   char last_name[NAME_MAX + 1];
+//   char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
+//   struct dir* dir;
+//   struct dir* base_dir = NULL;
+//   // char* new_last_name = "";
+//   // if (base_path != NULL) {
+//   //   new_last_name = file + strlen(base_path);
+//   // } else {
+//   //   new_last_name = file;
+//   // }
+
+//   if (base_path != NULL)
+//     base_dir = resolve_path(base_path);
+//   if (base_path == NULL || base_dir) { //base dir exists
+//     //0/2/0 last_name: c
+//     if (base_dir != NULL)
+//       dir = base_dir;
+//     else if (!thread_current()->pcb->cwd)
+//       dir = dir_open_root();
+//     else
+//       dir = thread_current()->pcb->cwd;
+//       //dir = dir_open_root();
+//     //look for the file in dir
+//     struct inode* inode;
+//     //0/2/0/3 //3
+//     //printf("new last name: %s\n", last_name);
+//     if (dir_lookup(dir, last_name, &inode)) {
+//       struct dir* resolved = resolve_path(last_name);
+//       char new_name[NAME_MAX + 1];
+//       while(dir_readdir(resolved, new_name)) {
+//         return false;
+//       }
+
+//         //return false;
+//       dir_remove(dir, last_name);
+//       return true;
+//       }
+//     }
+//     if (!filesys_remove(file)) {
+//       //figure out if a directory is empty
+//       struct dir* curr_dir = resolve_path(file);
+//       char name[NAME_MAX + 1];
+//       while (dir_readdir(curr_dir, name)) {
+//         if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
+//           return false;
+//         }
+//       }
+//       char last_name[NAME_MAX + 1];
+//       char* base_path = get_base_path(file, last_name);
+//       dir_remove(curr_dir->parent, last_name);
+//     }
+//     return false;
+// }
+
+// bool remove(const char* file) {
+//   bool success = false;
+//   bool is_empty = true;
+//   //either the file doesn't exist or it's a directory
+//   //path resolve here before calling filesys remove?
+//   if (!filesys_remove(file)) {
+//     //figure out if a directory is empty
+//     // /0/0/0
+//     struct dir* curr_dir = resolve_path(file);
+//     char name[NAME_MAX + 1];
+//     while (dir_readdir(curr_dir, name)) { //
+//       printf("name in curr dir: %s\n", name);
+//       // return false;
+//     }
+//     char last_name[NAME_MAX + 1];
+//     char* base_path = get_base_path(file, last_name);
+//     dir_remove(curr_dir, last_name);
+//   }
+//   return true;
+// }
+
 bool remove(const char* file) {
   bool success = false;
   bool is_empty = true;
   //either the file doesn't exist or it's a directory
   //path resolve here before calling filesys remove?
-  char* last_name[NAME_MAX + 1];
-  char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
-  struct dir* dir;
-  struct dir* base_dir = NULL;
-  char* new_last_name = "";
-  if (base_path != NULL) {
-    new_last_name = file + strlen(base_path);
-  } else {
-    new_last_name = file;
-  }
-
-  if (base_path != NULL)
-    base_dir = resolve_path(base_path);
-  if (base_path == NULL || base_dir) { //base dir exists
-    //0/2/0 last_name: c
-    if (base_dir != NULL)
-      dir = base_dir;
-    else if (!thread_current()->pcb->cwd)
-      dir = dir_open_root();
-    else
-      dir = thread_current()->pcb->cwd;
-    //look for the file in dir
-    struct inode* inode;
-    //0/2/0/3 //3
-    if (dir_lookup(dir, new_last_name, &inode)) {
-      //file_open(inode);
-      dir_remove(dir, new_last_name);
-      return true;
-    }
-  }
   if (!filesys_remove(file)) {
     //figure out if a directory is empty
+    // /0/0/0
     struct dir* curr_dir = resolve_path(file);
+    // if (curr_dir == thread_current()->pcb->cwd) {
+    //   thread_current()->pcb->removed_cwd = true;
+    //   return true;
+    // }
+    // if (!curr_dir->parent)
+    //   return false;
     char name[NAME_MAX + 1];
-    while (dir_readdir(curr_dir, &name)) {
-      if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
-        return false;
-      }
+    while (dir_readdir(curr_dir, name)) { //
+      //printf("name in curr dir: %s\n", name);
+      return false;
     }
     char last_name[NAME_MAX + 1];
     char* base_path = get_base_path(file, last_name);
-    dir_remove(curr_dir->parent, last_name);
+    struct dir* parent = resolve_path(base_path);
+    dir_remove(parent, last_name);
   }
-  return false;
+  return true;
 }
 
 /* Creates a new file called file initially initial_size bytes in size. 
