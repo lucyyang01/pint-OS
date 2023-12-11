@@ -113,6 +113,7 @@ bool dir_add(struct dir* dir, const char* name, block_sector_t inode_sector) {
     return false;
 
   /* Check that NAME is not in use. */
+
   if (lookup(dir, name, NULL, NULL))
     goto done;
 

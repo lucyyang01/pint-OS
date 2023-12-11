@@ -51,6 +51,8 @@ bool filesys_create(const char* name, off_t initial_size, bool isdir) {
     char last_name[NAME_MAX + 1];
     char* base_path = get_base_path(name, last_name);
     dir = resolve_path(base_path);
+    inode_sector = dir->inode->sector;
+    name = last_name;
   } else
     dir = dir_open_root();
   bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
