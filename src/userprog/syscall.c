@@ -193,6 +193,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   if (args[0] == SYS_MKDIR) {
     f->eax = mkdir(args[1]);
   }
+  if (args[0] == SYS_READDIR) {
+    f->eax = readdir(args[1], args[2]);
+  }
   if (args[0] == SYS_ISDIR) {
     f->eax = isdir(args[1]);
   }
@@ -253,7 +256,7 @@ bool mkdir(const char* dir) {
   block_sector_t sectorp;
   if (!free_map_allocate(1, &sectorp))
     return false;
-  if (!dir_create(sectorp, 16))
+  if (!dir_create(sectorp, 0))
     return false;
 
   //create a dir struct
@@ -339,19 +342,33 @@ char* get_base_path(char* path, char last_name[NAME_MAX + 1]) {
 /* Helper function to resolve paths by traversing via dir_lookup*/
 struct dir* resolve_path(const char* path_name) { //path_name is the path the user passed in
   struct dir* curr_dir;
+  /* Check for absolute path. */
+  if (strcmp(path_name, ".") == 0) {
+    //printf("path %s is .", path_name);
+    return thread_current()->pcb->cwd;
+  }
   if (path_name[0] == '/' || thread_current()->pcb->cwd == NULL) {
     curr_dir = dir_open_root(); // /home/user: what if home is the root dir
   } else {
     curr_dir = thread_current()->pcb->cwd;
   }
   char name_part[NAME_MAX + 1];
+  // check for case ., .. is contained in t
   // strlcpy(dup_path, *path_name, strlen(path_name) + 1);
   //char* dup_path = strdup(path_name);
   char* srcp = path_name;
   while (get_next_part(name_part, &srcp) == 1 && curr_dir) {
     struct inode* inode;
-    //printf("name_part: %s\n", name_part);
-    if (dir_lookup(curr_dir, name_part, &inode)) {
+    /* Check for "." */
+    if (strcmp(name_part, ".") == 0) {
+      /* return cwd from thread */
+      printf("path %s contains .", path_name);
+      curr_dir = thread_current()->pcb->cwd;
+    } else if (strcmp(name_part, "..") == 0) {
+      /* return parent dir. */
+      printf("path %s contains ..", path_name);
+      curr_dir = curr_dir->parent;
+    } else if (dir_lookup(curr_dir, name_part, &inode)) {
       //printf("DIR_LOOKUP FOUND THE DIR");
       dir_close(curr_dir);
       curr_dir = dir_open(inode);
@@ -512,13 +529,12 @@ int open(const char* file) { //cwd : a, file: "b" a/b
       struct inode* inode;
       //0/2/0/3 //3
       if (dir_lookup(dir, last_name, &inode) && !inode->data.is_dir) {
-        //file_open(inode);
         struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
         lock_acquire(&(fdt->lock));
         struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
         int new_fd = fdt->fdt_count;
         new_entry->fd = new_fd;
-        new_entry->file = opened;
+        new_entry->file = file_open(inode);
         new_entry->is_dir = false;
         new_entry->dir = NULL;
         list_push_back(&fdt->lst, &new_entry->elem);
@@ -567,83 +583,68 @@ int open(const char* file) { //cwd : a, file: "b" a/b
   return new_fd;
 
   //opening the root directory
-
-  //TODO: how to tell if we want to open a dir or a file?
-  // struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
-  // struct dir* dir;
-  // struct file* result;
-  // if (!strcmp(file, "/")) {
-  //   dir = dir_open_root();
-  //   result = file_open(dir_get_inode(dir));
-  //   //close root
-  //   dir_close(dir);
-  //   return result; //TODO: where do i add the fdt entry for the root directory?
-  // }
-
-  // char last_name[NAME_MAX + 1];
-  // char* base_path = get_base_path(file, last_name);
-  // // printf("last_name: %s\n", last_name);
-  // // printf("base_path: %s\n", base_path);
-
-  // if (base_path == NULL ) { //the path is just the name of the file, so search in cwd
-  //   if (!thread_current()->pcb->cwd)
-  //     dir = dir_open_root();
-  //     //result = filesys_open(file)
-  //   else
-  //     dir = resolve_path(base_path);
-  // struct inode* inode = dir_get_inode(dir);
-  // if (inode->data.is_dir) {
-  //   //find the fd corresponding to the directory
-  //   int fd_from_dir;
-  //   lock_acquire(&fdt->lock);
-  //   struct list_elem* el;
-  //   for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
-  //     struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
-  //     if (fileDescriptor_entry->dir == dir) {
-  //       fd_from_dir = fileDescriptor_entry->fd;
-  //       lock_release(&fdt->lock);
-  //     }
-  //   }
-  //   lock_release(&fdt->lock);
-  //   //open the directory
-  //   file_open(inode);
-  //   return fd_from_dir;
-  // } else {
-  //   struct file* opened = filesys_open(file);
-  //   if (opened == NULL) {
-  //     return -1;
-  //   }
-  //   //if opening a directory, resolve the
-  //   lock_acquire(&(fdt->lock));
-  //   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
-  //   int new_fd = fdt->fdt_count;
-  //   new_entry->fd = new_fd;
-  //   new_entry->file = opened;
-  //   new_entry->is_dir = false;
-  //   new_entry->dir = NULL;
-  //   list_push_back(&fdt->lst, &new_entry->elem);
-  //   fdt->fdt_count++;
-  //   lock_release(&fdt->lock);
-  //   return new_fd;
-  // }
-  //   //open the file
-
-  // //   if (result == NULL)
-  // //     return -1;
-  // //   return result;
-  // // }
-  // //printf("file: %s\n", file);
-  // //open file (we've changed to the file's parent directory)
-  // //printf("REACHED OPEN======");
-  // }
 }
 
 /* Deletes the file named file. Returns true if successful, false otherwise. */
+// bool remove(const char* file) {
+//   bool success = false;
+//   bool is_empty = true;
+//   //either the file doesn't exist or it's a directory
+//   //path resolve here before calling filesys remove?
+//   if (!filesys_remove(file)) {
+//     //figure out if a directory is empty
+//     struct dir* curr_dir = resolve_path(file);
+//     char name[NAME_MAX + 1];
+//     //while (dir_readdir(curr_dir, &name)) {
+//       // if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
+//       //   return false;
+//       // } MAY NOT NEED THIS
+//     //}
+//     char last_name[NAME_MAX + 1];
+//     char* base_path = get_base_path(file, last_name);
+//     // if(curr_dir == thread_current()->pcb->cwd){
+//     //   return false;
+//     // }
+//     dir_remove(curr_dir->parent, last_name);
+//   }
+//   return true;
+// }
+
 bool remove(const char* file) {
   bool success = false;
   bool is_empty = true;
   //either the file doesn't exist or it's a directory
   //path resolve here before calling filesys remove?
+  char* last_name[NAME_MAX + 1];
+  char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
+  struct dir* dir;
+  struct dir* base_dir = NULL;
+  char* new_last_name = "";
+  if (base_path != NULL) {
+    new_last_name = file + strlen(base_path);
+  } else {
+    new_last_name = file;
+  }
+
+  if (base_path != NULL)
+    base_dir = resolve_path(base_path);
+  if (base_path == NULL || base_dir) { //base dir exists
+    //0/2/0 last_name: c
+    if (base_dir != NULL)
+      dir = base_dir;
+    else if (!thread_current()->pcb->cwd)
+      dir = dir_open_root();
+    else
+      dir = thread_current()->pcb->cwd;
+    //look for the file in dir
+    struct inode* inode;
+    //0/2/0/3 //3
+    if (dir_lookup(dir, new_last_name, &inode)) {
+      //file_open(inode);
+      dir_remove(dir, new_last_name);
+      return true;
+    }
+  }
   if (!filesys_remove(file)) {
     //figure out if a directory is empty
     struct dir* curr_dir = resolve_path(file);
@@ -657,7 +658,7 @@ bool remove(const char* file) {
     char* base_path = get_base_path(file, last_name);
     dir_remove(curr_dir->parent, last_name);
   }
-  return true;
+  return false;
 }
 
 /* Creates a new file called file initially initial_size bytes in size. 
@@ -672,7 +673,7 @@ bool create(const char* file, unsigned initialized_size) {
   bool is_dir = true;
   if (base_path == NULL || !strcmp(base_path, "/"))
     is_dir = false;
-  // printf("WEFHWIFEHlast_name: %s\n", last_name);
+  // printf("last_name: %s\n", last_name);
   // printf("base_path: %s\n", base_path);
   return filesys_create(file, initialized_size, is_dir);
 }
