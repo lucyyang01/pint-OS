@@ -54,7 +54,7 @@ void free_map_release(block_sector_t sector, size_t cnt) {
 
 /* Opens the free map file and reads it from disk. */
 void free_map_open(void) {
-  lock_acquire(&free_map_lock);
+  //lock_acquire(&free_map_lock);
   free_map_file = file_open(inode_open(FREE_MAP_SECTOR));
   if (free_map_file == NULL)
     PANIC("can't open free map");
@@ -65,7 +65,7 @@ void free_map_open(void) {
     //lock_release(&free_map_lock);
     PANIC("can't read free map");
   }
-  lock_release(&free_map_lock);
+  //ock_release(&free_map_lock);
 }
 
 /* Writes the free map to disk and closes the free map file. */
