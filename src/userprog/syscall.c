@@ -264,7 +264,7 @@ bool mkdir(const char* dir) {
   new_dir->parent = parent_dir;
   new_dir->inode = inode_open(sectorp);
   new_dir->pos = 0;
-  new_dir->inode->data.is_dir = true;
+  new_dir->inode->data->is_dir = true;
 
   //add a fdt entry for this directory
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
@@ -500,85 +500,195 @@ int filesize(int fd) {
 
 /* Opens the file named file. Returns a nonnegative file descriptor
 if successful, or -1 if the file couldn't be opened. */
-int open(const char* file) { //cwd : a, file: "b" a/b
-  if (strlen(file) == 0)     //|| thread_current()->pcb->removed_cwd
+int open(const char* file) {
+  if (strlen(file) == 0)
     return -1;
+  if (strcmp(file, "/") == 0) {
+    struct dir* root = dir_open_root();
+    struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+    struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+    int new_fd = fdt->fdt_count;
+    new_entry->fd = new_fd;
+    new_entry->file = NULL;
+    new_entry->dir = root;
+    list_push_back(&fdt->lst, &new_entry->elem);
+    fdt->fdt_count++;
+    //lock_release(&fdt->lock);
+    new_entry->is_dir = true;
+    return new_fd;
+  }
+  //printf("opening %s\n", file);
   struct file* opened = filesys_open(file);
-  if (opened == NULL || opened->inode->data.is_dir) {
+
+  /* If filesys_open fails, then check if opening a directory */
+  if (opened == NULL || opened->inode->data->is_dir) {
+    /* Buffer to store last name in path. i.e "b" in "a/b"*/
+    //if (opened == NULL) printf("file opened is null.\n");
+    //printf("filesys open failed.\n");
     char last_name[NAME_MAX + 1];
+    /* base path is the path of the parent for last name. */
     char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
     struct dir* dir;
-
     struct dir* base_dir = NULL;
+    /* if base_path is equal to "/" lookup file in root dir. */
+    /* if base path is not null, get the dir struct for parent dir in base path. */
     if (base_path != NULL)
-      base_dir = resolve_path(base_path); //can't find directory b inside a
-    if (base_path == NULL || base_dir) {  //base dir exists
-      //0/2/0 last_name: c
-      if (base_dir != NULL)
-        dir = base_dir;
-      else if (!thread_current()->pcb->cwd)
-        dir = dir_open_root();
-      else
-        dir = thread_current()->pcb->cwd;
-      //look for the file in dir
-      struct inode* inode;
-      //0/2/0/3 //3
-      if (dir_lookup(dir, last_name, &inode) && !inode->data.is_dir && !inode->removed) {
+      base_dir = resolve_path(base_path);
+    /* search base dir for file */
+    if (base_dir != NULL) {
+      struct inode* inode = malloc(sizeof inode);
+      if (dir_lookup(base_dir, last_name, &inode)) {
+        /* check if ionde is dir or file. */
         struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
-        lock_acquire(&(fdt->lock));
+        //lock_acquire(&(fdt->lock));
         struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
         int new_fd = fdt->fdt_count;
         new_entry->fd = new_fd;
         new_entry->file = file_open(inode);
-        new_entry->is_dir = false;
         new_entry->dir = NULL;
         list_push_back(&fdt->lst, &new_entry->elem);
         fdt->fdt_count++;
-        lock_release(&fdt->lock);
+        //lock_release(&fdt->lock);
+        if (inode->data->is_dir) {
+          new_entry->is_dir = true;
+          new_entry->file = NULL;
+          new_entry->dir = dir_open(inode);
+        } else {
+          new_entry->is_dir = false;
+          new_entry->file = file_open(inode);
+          new_entry->dir = NULL;
+        }
         return new_fd;
       }
     }
-    dir = resolve_path(file);
-    if (dir == NULL)
-      //look for the file inside
-      return -1;
-    //printf("MADE IT HERE======");
-    struct inode* inode = dir_get_inode(dir);
-    if (inode->data.is_dir && !inode->removed) {
-      //find the fd corresponding to the directory
-      int fd_from_dir = -1;
+    /* base path is null. Try looking in cwd. */
+    struct dir* parent_dir = thread_current()->pcb->cwd;
+    if (parent_dir == NULL)
+      parent_dir = dir_open_root();
+    struct inode* inode;
+    if (dir_lookup(parent_dir, last_name, &inode)) {
+      /* check if ionde is dir or file. */
       struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
-      lock_acquire(&fdt->lock);
-      struct list_elem* el;
-      for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
-        struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
-        if (dir_get_inode(fileDescriptor_entry->dir) == dir_get_inode(dir)) {
-          fd_from_dir = fileDescriptor_entry->fd;
-          //lock_release(&fdt->lock);
-        }
+      //lock_acquire(&(fdt->lock));
+      struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+      int new_fd = fdt->fdt_count;
+      new_entry->fd = new_fd;
+      new_entry->file = file_open(inode);
+      new_entry->dir = NULL;
+      list_push_back(&fdt->lst, &new_entry->elem);
+      fdt->fdt_count++;
+      //lock_release(&fdt->lock);
+      if (inode->data->is_dir) {
+        new_entry->is_dir = true;
+        new_entry->file = NULL;
+        new_entry->dir = dir_open(inode);
+      } else {
+        new_entry->is_dir = false;
+        new_entry->file = file_open(inode);
+        new_entry->dir = NULL;
       }
-      lock_release(&fdt->lock);
-      file_open(inode);
-      return fd_from_dir;
-    } else
-      return -1;
+
+      return new_fd;
+    }
+    return -1;
   }
-  //if opening a directory, resolve the
+
+  /* File opened. */
   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
-  lock_acquire(&(fdt->lock));
+  //lock_acquire(&(fdt->lock));
   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
   int new_fd = fdt->fdt_count;
   new_entry->fd = new_fd;
   new_entry->file = opened;
-  new_entry->is_dir = false;
   new_entry->dir = NULL;
+  new_entry->is_dir = false;
   list_push_back(&fdt->lst, &new_entry->elem);
   fdt->fdt_count++;
-  lock_release(&fdt->lock);
   return new_fd;
-
-  //opening the root directory
 }
+
+// /* Opens the file named file. Returns a nonnegative file descriptor
+// if successful, or -1 if the file couldn't be opened. */
+// int open(const char* file) { //cwd : a, file: "b" a/b
+//   if (strlen(file) == 0)     //|| thread_current()->pcb->removed_cwd
+//     return -1;
+//   struct file* opened = filesys_open(file);
+//   if (opened == NULL || opened->inode->data->is_dir) {
+//     char last_name[NAME_MAX + 1];
+//     char* base_path = get_base_path(file, last_name); // a/b/c base_path: a/b/ last_name: c
+//     struct dir* dir;
+
+//     struct dir* base_dir = NULL;
+//     if (base_path != NULL)
+//       base_dir = resolve_path(base_path); //can't find directory b inside a
+//     if (base_path == NULL || base_dir) {  //base dir exists
+//       //0/2/0 last_name: c
+//       if (base_dir != NULL)
+//         dir = base_dir;
+//       else if (!thread_current()->pcb->cwd)
+//         dir = dir_open_root();
+//       else
+//         dir = thread_current()->pcb->cwd;
+//       //look for the file in dir
+//       struct inode* inode;
+//       //0/2/0/3 //3
+//       if (dir_lookup(dir, last_name, &inode) && !inode->data->is_dir && !inode->removed) {
+//         struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+//         lock_acquire(&(fdt->lock));
+//         struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+//         int new_fd = fdt->fdt_count;
+//         new_entry->fd = new_fd;
+//         new_entry->file = file_open(inode);
+//         new_entry->is_dir = false;
+//         new_entry->dir = NULL;
+//         list_push_back(&fdt->lst, &new_entry->elem);
+//         fdt->fdt_count++;
+//         lock_release(&fdt->lock);
+//         return new_fd;
+//       }
+//     }
+//     dir = resolve_path(file);
+//     if (dir == NULL)
+//       //look for the file inside
+//       return -1;
+//     //printf("MADE IT HERE======");
+//     struct inode* inode = dir_get_inode(dir);
+//     if (inode->data->is_dir && !inode->removed) {
+//       //find the fd corresponding to the directory
+//       int fd_from_dir = -1;
+//       struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+//       lock_acquire(&fdt->lock);
+//       struct list_elem* el;
+//       for (el = list_begin(&fdt->lst); el != list_end(&fdt->lst); el = list_next(el)) {
+//         struct fileDescriptor* fileDescriptor_entry = list_entry(el, struct fileDescriptor, elem);
+//         if (dir_get_inode(fileDescriptor_entry->dir) == dir_get_inode(dir)) {
+//           fd_from_dir = fileDescriptor_entry->fd;
+//           break;
+//           //lock_release(&fdt->lock);
+//         }
+//       }
+//       lock_release(&fdt->lock);
+//       file_open(inode);
+//       return fd_from_dir;
+//     } else
+//       return -1;
+//   }
+//   //if opening a directory, resolve the
+//   struct fileDescriptor_list* fdt = thread_current()->pcb->fileDescriptorTable;
+//   lock_acquire(&(fdt->lock));
+//   struct fileDescriptor* new_entry = malloc(sizeof(struct fileDescriptor));
+//   int new_fd = fdt->fdt_count;
+//   new_entry->fd = new_fd;
+//   new_entry->file = opened;
+//   new_entry->is_dir = false;
+//   new_entry->dir = NULL;
+//   list_push_back(&fdt->lst, &new_entry->elem);
+//   fdt->fdt_count++;
+//   lock_release(&fdt->lock);
+//   return new_fd;
+
+//   //opening the root directory
+// }
 
 bool remove(const char* file) {
   bool success = false;
